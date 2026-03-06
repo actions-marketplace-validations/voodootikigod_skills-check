@@ -36,6 +36,7 @@ export function isSafeRegex(pattern: string): boolean {
 }
 
 const QUANTIFIER_CHARS = new Set(["*", "+", "?"]);
+const BRACE_QUANTIFIER_RE = /^\{\d+,?\d*\}/;
 
 function isQuantifier(pattern: string, pos: number): boolean {
 	const ch = pattern[pos];
@@ -45,13 +46,14 @@ function isQuantifier(pattern: string, pos: number): boolean {
 	// {n,m} style quantifiers
 	if (ch === "{") {
 		const close = pattern.indexOf("}", pos);
-		if (close !== -1 && /^\{\d+,?\d*\}/.test(pattern.slice(pos, close + 1))) {
+		if (close !== -1 && BRACE_QUANTIFIER_RE.test(pattern.slice(pos, close + 1))) {
 			return true;
 		}
 	}
 	return false;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: regex pattern analysis is inherently complex
 function hasNestedQuantifiers(pattern: string): boolean {
 	// Track group boundaries and whether each group-level has a quantifier inside
 	const groupStack: { hasQuantifier: boolean }[] = [];
@@ -95,6 +97,7 @@ function hasNestedQuantifiers(pattern: string): boolean {
 				}
 				// Mark the parent group as having a quantifier
 				if (groupStack.length > 0) {
+					// biome-ignore lint/style/useAtIndex: .at() returns possibly undefined, bracket access is guarded by length check
 					groupStack[groupStack.length - 1].hasQuantifier = true;
 				}
 			}
@@ -104,6 +107,7 @@ function hasNestedQuantifiers(pattern: string): boolean {
 		// Check for quantifiers on atoms
 		if (isQuantifier(pattern, i)) {
 			if (groupStack.length > 0) {
+				// biome-ignore lint/style/useAtIndex: .at() returns possibly undefined, bracket access is guarded by length check
 				groupStack[groupStack.length - 1].hasQuantifier = true;
 			}
 			// Skip past the quantifier (and optional ? or + modifiers)
@@ -120,6 +124,7 @@ function hasNestedQuantifiers(pattern: string): boolean {
 	return false;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: regex pattern analysis is inherently complex
 function hasExcessiveQuantifierChains(pattern: string): boolean {
 	// Count consecutive quantified atoms that can match overlapping input
 	// e.g., \w+\w+\w+\w+ — each \w+ can greedily consume then backtrack
