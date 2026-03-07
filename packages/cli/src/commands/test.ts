@@ -4,6 +4,7 @@ import type { IsolationChoice } from "../isolation/types.js";
 import { runTests } from "../testing/index.js";
 import { formatJson } from "../testing/reporters/json.js";
 import { formatMarkdown } from "../testing/reporters/markdown.js";
+import { formatTestSarif } from "../testing/reporters/sarif.js";
 import { formatTerminal } from "../testing/reporters/terminal.js";
 import type { TestOptions } from "../testing/types.js";
 
@@ -12,13 +13,14 @@ interface TestCommandOptions {
 	agentCmd?: string;
 	ci?: boolean;
 	dry?: boolean;
-	format?: "terminal" | "json" | "markdown";
+	format?: "terminal" | "json" | "markdown" | "sarif";
 	isolation?: IsolationChoice | boolean;
 	maxCost?: string;
 	model?: string;
 	output?: string;
 	passThreshold?: string;
 	provider?: string;
+	quiet?: boolean;
 	skill?: string;
 	timeout?: string;
 	trials?: string;
@@ -29,6 +31,11 @@ interface TestCommandOptions {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrator function
 export async function testCommand(dir: string, options: TestCommandOptions): Promise<number> {
+	if (options.verbose && options.quiet) {
+		console.error(chalk.red("Cannot use --verbose and --quiet together."));
+		return 2;
+	}
+
 	const testOptions: TestOptions = {
 		skill: options.skill,
 		type: options.type,
@@ -234,6 +241,9 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 		case "markdown":
 			output = formatMarkdown(reports, baselineDiffs);
 			break;
+		case "sarif":
+			output = formatTestSarif(reports);
+			break;
 		default:
 			output = formatTerminal(reports, {
 				verbose: options.verbose,
@@ -245,8 +255,10 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 	// Write to file or stdout
 	if (options.output) {
 		await writeFile(options.output, output, "utf-8");
-		console.error(chalk.green(`Report written to ${options.output}`));
-	} else {
+		if (!options.quiet) {
+			console.error(chalk.green(`Report written to ${options.output}`));
+		}
+	} else if (!options.quiet) {
 		console.log(output);
 	}
 

@@ -5,21 +5,30 @@ import { getAvailableModels } from "../budget/cost.js";
 import { runBudget } from "../budget/index.js";
 import { formatComparisonJson, formatJson } from "../budget/reporters/json.js";
 import { formatComparisonMarkdown, formatMarkdown } from "../budget/reporters/markdown.js";
+import { formatBudgetSarif } from "../budget/reporters/sarif.js";
 import { formatComparisonTerminal, formatTerminal } from "../budget/reporters/terminal.js";
 import type { BudgetOptions } from "../budget/types.js";
 
 interface BudgetCommandOptions {
 	compare?: string;
 	detailed?: boolean;
-	format?: "terminal" | "json" | "markdown";
+	format?: "terminal" | "json" | "markdown" | "sarif";
 	maxTokens?: string;
 	model?: string;
 	output?: string;
+	quiet?: boolean;
 	save?: string;
 	skill?: string;
+	verbose?: boolean;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrator function
 export async function budgetCommand(dir: string, options: BudgetCommandOptions): Promise<number> {
+	if (options.verbose && options.quiet) {
+		console.error(chalk.red("Cannot use --verbose and --quiet together."));
+		return 2;
+	}
+
 	// Validate model if provided
 	if (options.model) {
 		const available = getAvailableModels();
@@ -63,30 +72,37 @@ export async function budgetCommand(dir: string, options: BudgetCommandOptions):
 	// Save snapshot if requested
 	if (options.save) {
 		await saveSnapshot(report, options.save);
-		console.error(chalk.green(`Snapshot saved to ${options.save}`));
+		if (!options.quiet) {
+			console.error(chalk.green(`Snapshot saved to ${options.save}`));
+		}
 	}
 
 	// Format output
-	const format = options.format ?? "terminal";
-	let output: string;
-	switch (format) {
-		case "json":
-			output = formatJson(report);
-			break;
-		case "markdown":
-			output = formatMarkdown(report, options.detailed);
-			break;
-		default:
-			output = formatTerminal(report, options.detailed);
-			break;
-	}
+	if (!options.quiet) {
+		const format = options.format ?? "terminal";
+		let output: string;
+		switch (format) {
+			case "json":
+				output = formatJson(report);
+				break;
+			case "markdown":
+				output = formatMarkdown(report, options.detailed);
+				break;
+			case "sarif":
+				output = formatBudgetSarif(report);
+				break;
+			default:
+				output = formatTerminal(report, options.detailed);
+				break;
+		}
 
-	// Write to file or stdout
-	if (options.output) {
-		await writeFile(options.output, output, "utf-8");
-		console.error(chalk.green(`Report written to ${options.output}`));
-	} else {
-		console.log(output);
+		// Write to file or stdout
+		if (options.output) {
+			await writeFile(options.output, output, "utf-8");
+			console.error(chalk.green(`Report written to ${options.output}`));
+		} else {
+			console.log(output);
+		}
 	}
 
 	// Check max-tokens threshold
@@ -127,27 +143,29 @@ async function handleComparison(dir: string, options: BudgetCommandOptions): Pro
 
 	const diffs = compareSnapshots(baseline, currentSnapshot);
 
-	// Format output
-	const format = options.format ?? "terminal";
-	let output: string;
-	switch (format) {
-		case "json":
-			output = formatComparisonJson(diffs);
-			break;
-		case "markdown":
-			output = formatComparisonMarkdown(diffs);
-			break;
-		default:
-			output = formatComparisonTerminal(diffs);
-			break;
-	}
+	if (!options.quiet) {
+		// Format output
+		const format = options.format ?? "terminal";
+		let output: string;
+		switch (format) {
+			case "json":
+				output = formatComparisonJson(diffs);
+				break;
+			case "markdown":
+				output = formatComparisonMarkdown(diffs);
+				break;
+			default:
+				output = formatComparisonTerminal(diffs);
+				break;
+		}
 
-	// Write to file or stdout
-	if (options.output) {
-		await writeFile(options.output, output, "utf-8");
-		console.error(chalk.green(`Comparison written to ${options.output}`));
-	} else {
-		console.log(output);
+		// Write to file or stdout
+		if (options.output) {
+			await writeFile(options.output, output, "utf-8");
+			console.error(chalk.green(`Comparison written to ${options.output}`));
+		} else {
+			console.log(output);
+		}
 	}
 
 	return 0;

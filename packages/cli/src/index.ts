@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { auditCommand } from "./commands/audit.js";
 import { budgetCommand } from "./commands/budget.js";
 import { checkCommand } from "./commands/check.js";
+import { healthCommand } from "./commands/health.js";
 import { initCommand } from "./commands/init.js";
 import { lintCommand } from "./commands/lint.js";
 import { policyCheckCommand, policyInitCommand, policyValidateCommand } from "./commands/policy.js";
@@ -30,6 +31,7 @@ program
 	.option("-p, --product <name>", "check a single product")
 	.option("--json", "output results as JSON")
 	.option("-v, --verbose", "show all products including current")
+	.option("--quiet", "suppress output, exit code only")
 	.option("--ci", "exit code 1 if any stale products found")
 	.action(async (options) => {
 		try {
@@ -115,7 +117,7 @@ program
 	.argument("[dir]", "directory to analyze", ".")
 	.option("-s, --skill <name>", "analyze a specific skill by name")
 	.option("-d, --detailed", "show per-section token breakdown")
-	.option("-f, --format <type>", "output format: terminal, json, or markdown", "terminal")
+	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")
 	.option("-o, --output <path>", "write report to file")
 	.option("--max-tokens <n>", "exit code 1 if total exceeds this threshold")
 	.option("--save <path>", "save a snapshot for later comparison")
@@ -124,6 +126,8 @@ program
 		"--model <name>",
 		"model for cost estimation: claude-opus, claude-sonnet, claude-haiku, gpt-4o"
 	)
+	.option("--verbose", "show progress and details")
+	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
 			const code = await budgetCommand(dir, options);
@@ -141,8 +145,10 @@ program
 	.option("--fix", "auto-fix missing fields from git context")
 	.option("--ci", "strict CI mode")
 	.option("--fail-on <level>", "exit code 1 threshold: error, warning", "error")
-	.option("-f, --format <type>", "output format: terminal or json", "terminal")
+	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")
 	.option("-o, --output <path>", "write report to file")
+	.option("--verbose", "show progress and details")
+	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
 			const code = await lintCommand(dir, options);
@@ -176,7 +182,7 @@ program
 	.option("--before <path>", "path to previous version of skill")
 	.option("--after <path>", "path to current version of skill")
 	.option("--suggest", "suggest appropriate version bump")
-	.option("-f, --format <type>", "output format: terminal or json", "terminal")
+	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")
 	.option("-o, --output <path>", "write report to file")
 	.option("--provider <name>", "LLM provider: anthropic, openai, google")
 	.option("--model <id>", "specific model ID")
@@ -204,9 +210,11 @@ policyCmd
 	.option("--policy <path>", "path to .skill-policy.yml")
 	.option("-s, --skill <name>", "check a specific skill by name")
 	.option("--ci", "strict exit codes")
-	.option("-f, --format <type>", "output format: terminal or json", "terminal")
+	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")
 	.option("-o, --output <path>", "write report to file")
 	.option("--fail-on <severity>", "exit code 1 threshold: blocked, violation, warning", "blocked")
+	.option("--verbose", "show progress and details")
+	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
 			const code = await policyCheckCommand(dir, options);
@@ -253,7 +261,7 @@ program
 	.option("-t, --type <type>", "filter by test type: trigger, outcome, style, regression")
 	.option("--agent <name>", "agent harness: claude-code, generic", "generic")
 	.option("--agent-cmd <command>", "custom command template for generic harness")
-	.option("-f, --format <type>", "output format: terminal, json, or markdown", "terminal")
+	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")
 	.option("-o, --output <path>", "write report to file")
 	.option("--trials <n>", "runs per test case")
 	.option("--pass-threshold <n>", "trials that must pass")
@@ -265,6 +273,7 @@ program
 	.option("--provider <name>", "LLM provider for rubric grading: anthropic, openai, google")
 	.option("--model <id>", "model for rubric grading")
 	.option("--verbose", "show per-grader results")
+	.option("--quiet", "suppress output, exit code only")
 	.option(
 		"--isolation <provider>",
 		"run in isolated environment: auto, oci, apple, docker, podman, orbstack, rancher, nerdctl, vercel, local"
@@ -273,6 +282,29 @@ program
 	.action(async (dir, options) => {
 		try {
 			const code = await testCommand(dir, options);
+			process.exit(code);
+		} catch (error) {
+			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			process.exit(2);
+		}
+	});
+
+program
+	.command("health")
+	.description("Run audit + lint + budget + policy as a single CI gate")
+	.argument("[dir]", "directory to check", ".")
+	.option("-f, --format <type>", "output format: terminal or json", "terminal")
+	.option("-o, --output <path>", "write report to file")
+	.option("--max-tokens <n>", "budget threshold for token count")
+	.option("--skip-audit", "skip audit check")
+	.option("--skip-lint", "skip lint check")
+	.option("--skip-budget", "skip budget check")
+	.option("--skip-policy", "skip policy check")
+	.option("--verbose", "show progress and details")
+	.option("--quiet", "suppress output, exit code only")
+	.action(async (dir, options) => {
+		try {
+			const code = await healthCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
 			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
