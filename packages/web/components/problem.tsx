@@ -18,6 +18,8 @@ export function Problem() {
 							<p className={styles.pointDescription}>
 								A renamed package, a deprecated API, a missing parameter &mdash; stale skills
 								don&rsquo;t always fail loudly. Sometimes they just quietly produce worse outcomes.
+								A skill referencing React 18 APIs when React 19 is current can cause agents to
+								generate incompatible code.
 							</p>
 						</div>
 					</div>
@@ -27,8 +29,9 @@ export function Problem() {
 							<h3 className={styles.pointTitle}>Safety is a blindspot</h3>
 							<p className={styles.pointDescription}>
 								Skills can reference hallucinated packages, contain prompt injection patterns, or
-								suggest commands that delete data. Without auditing, you&rsquo;re trusting unknown
-								instructions.
+								suggest commands that delete data. A skill recommending{" "}
+								<code>npm audit fix --force</code> can break production dependencies. Without
+								auditing, you&rsquo;re trusting unknown instructions.
 							</p>
 						</div>
 					</div>
@@ -40,7 +43,9 @@ export function Problem() {
 							</h3>
 							<p className={styles.pointDescription}>
 								<code>npm outdated</code> tells you when packages are behind. Dependabot opens PRs.
-								But for agent knowledge? Nothing. Your skill files are flying blind.
+								But for agent knowledge? Nothing. A skill referencing <code>@langchain/core</code>{" "}
+								v0.1 patterns when v0.3 has breaking API changes leaves your agents working with
+								outdated instructions.
 							</p>
 						</div>
 					</div>

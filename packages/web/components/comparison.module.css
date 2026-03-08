@@ -21,63 +21,59 @@
 	color: var(--text-secondary);
 }
 
-.steps {
+.items {
 	display: flex;
 	flex-direction: column;
-	gap: 32px;
-}
-
-.step {
-	display: flex;
 	gap: 20px;
 }
 
-.stepNumber {
+.item {
+	display: flex;
+	gap: 16px;
+	align-items: flex-start;
+	padding: 20px;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+
+.icon {
 	display: flex;
 	flex-shrink: 0;
 	align-items: center;
 	justify-content: center;
 	width: 32px;
 	height: 32px;
-	font-family: var(--font-mono);
-	font-size: 14px;
-	color: var(--text-secondary);
+	font-size: 18px;
 	border: 1px solid var(--border);
 	border-radius: 50%;
 }
 
-.stepContent {
+.itemContent {
 	flex: 1;
 	min-width: 0;
 }
 
-.stepTitle {
+.unlike {
 	margin-bottom: 4px;
-	font-size: 16px;
+	font-size: 13px;
 	font-weight: 600;
+	color: var(--text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
 }
 
-.stepContext {
-	margin-bottom: 8px;
+.itemDescription {
 	font-size: 15px;
 	line-height: 1.6;
-	color: var(--text-primary);
-}
-
-.stepDescription {
-	margin-bottom: 12px;
-	font-size: 14px;
 	color: var(--text-secondary);
 }
 
-.codeBlock {
-	display: inline-flex;
-	gap: 12px;
-	align-items: center;
-	padding: 10px 14px;
-	font-family: var(--font-mono);
-	font-size: 14px;
-	background: var(--code-bg);
-	border: 1px solid var(--border);
-	border-radius: 8px;
+.itemDescription strong {
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.accent {
+	color: var(--success);
 }

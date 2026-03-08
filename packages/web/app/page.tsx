@@ -1,4 +1,6 @@
 import { Commands } from "@/components/commands";
+import { Comparison } from "@/components/comparison";
+import { Explainer } from "@/components/explainer";
 import { Footer } from "@/components/footer";
 import { GitHubAction } from "@/components/github-action";
 import { Header } from "@/components/header";
@@ -103,7 +105,9 @@ export default function Home() {
 			<Header />
 			<main>
 				<Hero />
+				<Explainer />
 				<Problem />
+				<Comparison />
 				<Commands />
 				<GitHubAction />
 				<Quickstart />

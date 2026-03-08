@@ -1,0 +1,92 @@
+.section {
+	padding: 64px 0;
+	border-top: 1px solid var(--border);
+}
+
+.container {
+	max-width: 1024px;
+	padding: 0 24px;
+	margin: 0 auto;
+}
+
+.heading {
+	margin-bottom: 16px;
+	font-size: 24px;
+	font-weight: 600;
+}
+
+.lead {
+	margin-bottom: 32px;
+	font-size: 18px;
+	line-height: 1.7;
+	color: var(--text-secondary);
+}
+
+.content {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 40px;
+	align-items: start;
+}
+
+@media (max-width: 768px) {
+	.content {
+		grid-template-columns: 1fr;
+	}
+}
+
+.prose {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.paragraph {
+	font-size: 15px;
+	line-height: 1.7;
+	color: var(--text-secondary);
+}
+
+.paragraph strong {
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.accent {
+	color: var(--success);
+}
+
+.example {
+	padding: 24px;
+	background: var(--code-bg);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+
+.exampleLabel {
+	margin-bottom: 12px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.exampleCode {
+	font-family: var(--font-mono);
+	font-size: 14px;
+	line-height: 1.8;
+	white-space: pre;
+}
+
+.yamlKey {
+	color: var(--success);
+}
+
+.yamlValue {
+	color: var(--text-secondary);
+}
+
+.yamlDelimiter {
+	color: var(--text-tertiary);
+}
