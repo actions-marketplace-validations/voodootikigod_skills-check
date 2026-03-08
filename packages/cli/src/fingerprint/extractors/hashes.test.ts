@@ -46,7 +46,7 @@ describe("extractWatermark", () => {
 describe("generateWatermark", () => {
 	it("generates watermark with source", () => {
 		expect(generateWatermark("react", "19.1.0", "@acme/react")).toBe(
-			"<!-- skill:react/19.1.0 @acme/react -->",
+			"<!-- skill:react/19.1.0 @acme/react -->"
 		);
 	});
 

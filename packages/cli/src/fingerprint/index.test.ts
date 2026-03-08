@@ -60,7 +60,8 @@ describe("runFingerprint", () => {
 	});
 
 	it("detects existing watermark", async () => {
-		const raw = "---\nname: react\nversion: 19.1.0\n---\n<!-- skill:react/19.1.0 @acme/react -->\n# Content";
+		const raw =
+			"---\nname: react\nversion: 19.1.0\n---\n<!-- skill:react/19.1.0 @acme/react -->\n# Content";
 		mockDiscover.mockResolvedValue(["/skills/react/SKILL.md"]);
 		mockRead.mockResolvedValue({
 			path: "/skills/react/SKILL.md",
@@ -84,7 +85,7 @@ describe("runFingerprint", () => {
 		});
 		mockWrite.mockResolvedValue();
 
-		const result = await runFingerprint([".", ], { injectWatermarks: true });
+		const result = await runFingerprint(["."], { injectWatermarks: true });
 		expect(mockWrite).toHaveBeenCalledOnce();
 		const writtenContent = mockWrite.mock.calls[0][1];
 		expect(writtenContent).toContain("<!-- skill:react/19.1.0 -->");
@@ -101,7 +102,7 @@ describe("runFingerprint", () => {
 			raw,
 		});
 
-		await runFingerprint([".", ], { injectWatermarks: true });
+		await runFingerprint(["."], { injectWatermarks: true });
 		expect(mockWrite).not.toHaveBeenCalled();
 	});
 
