@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { Command } from "commander";
 import { auditCommand } from "./commands/audit.js";
 import { budgetCommand } from "./commands/budget.js";
+import { fingerprintCommand } from "./commands/fingerprint.js";
 import { checkCommand } from "./commands/check.js";
 import { healthCommand } from "./commands/health.js";
 import { initCommand } from "./commands/init.js";
@@ -139,10 +140,33 @@ program
 	});
 
 program
+	.command("fingerprint")
+	.description("Generate a fingerprint registry of installed skills")
+	.argument("[dir]", "directory to analyze", ".")
+	.option("-o, --output <path>", "write registry to file")
+	.option("--inject-watermarks", "add watermark comments to skills that lack them")
+	.option("--algorithm <algo>", "hash algorithm: sha256, sha384, sha512", "sha256")
+	.option("--include-content", "include full skill content in registry")
+	.option("--json", "output as JSON")
+	.option("--ci", "strict exit codes")
+	.option("--verbose", "show progress and details")
+	.option("--quiet", "suppress output, exit code only")
+	.action(async (dir, options) => {
+		try {
+			const code = await fingerprintCommand(dir, options);
+			process.exit(code);
+		} catch (error) {
+			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			process.exit(2);
+		}
+	});
+
+program
 	.command("lint")
 	.description("Validate metadata completeness and format in skill files")
 	.argument("[dir]", "directory to lint", ".")
 	.option("--fix", "auto-fix missing fields from git context")
+	.option("--inject-watermarks", "inject fingerprint watermarks during --fix")
 	.option("--ci", "strict CI mode")
 	.option("--fail-on <level>", "exit code 1 threshold: error, warning", "error")
 	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")

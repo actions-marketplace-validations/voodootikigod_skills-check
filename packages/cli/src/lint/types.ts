@@ -21,5 +21,6 @@ export interface LintOptions {
 	failOn?: "error" | "warning";
 	fix?: boolean;
 	format?: "terminal" | "json" | "markdown" | "sarif";
+	injectWatermarks?: boolean;
 	output?: string;
 }

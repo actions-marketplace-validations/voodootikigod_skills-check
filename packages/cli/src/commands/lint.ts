@@ -12,6 +12,7 @@ interface LintCommandOptions {
 	failOn?: string;
 	fix?: boolean;
 	format?: "terminal" | "json" | "markdown" | "sarif";
+	injectWatermarks?: boolean;
 	output?: string;
 	quiet?: boolean;
 	verbose?: boolean;
@@ -38,6 +39,7 @@ export async function lintCommand(dir: string, options: LintCommandOptions): Pro
 		ci: options.ci,
 		failOn: failOn as "error" | "warning",
 		format: options.format,
+		injectWatermarks: options.injectWatermarks,
 		output: options.output,
 	};
 
