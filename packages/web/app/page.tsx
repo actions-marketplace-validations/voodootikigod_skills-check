@@ -1,5 +1,6 @@
 import { Commands } from "@/components/commands";
 import { Footer } from "@/components/footer";
+import { GitHubAction } from "@/components/github-action";
 import { Header } from "@/components/header";
 import { Hero } from "@/components/hero";
 import { Problem } from "@/components/problem";
@@ -15,7 +16,7 @@ const jsonLd = {
 		"Quality & integrity layer for AI Agent Skills — check freshness, audit security, lint metadata, enforce policy, measure token budgets, verify semver, and run eval tests across your SKILL.md files.",
 	url: "https://skillscheck.ai",
 	downloadUrl: "https://www.npmjs.com/package/skills-check",
-	softwareVersion: "1.1.0",
+	softwareVersion: "1.3.0",
 	author: {
 		"@type": "Person",
 		name: "Chris Williams",
@@ -41,6 +42,7 @@ export default function Home() {
 				<Hero />
 				<Problem />
 				<Commands />
+				<GitHubAction />
 				<Quickstart />
 			</main>
 			<Footer />

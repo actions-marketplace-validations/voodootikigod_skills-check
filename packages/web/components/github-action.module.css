@@ -1,0 +1,130 @@
+.section {
+	padding: 64px 0;
+	border-top: 1px solid var(--border);
+}
+
+.container {
+	max-width: 1024px;
+	padding: 0 24px;
+	margin: 0 auto;
+}
+
+.header {
+	margin-bottom: 40px;
+}
+
+.badge {
+	display: inline-block;
+	padding: 4px 12px;
+	margin-bottom: 16px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--success);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	background: rgba(80, 227, 194, 0.08);
+	border: 1px solid rgba(80, 227, 194, 0.2);
+	border-radius: 4px;
+}
+
+.heading {
+	margin-bottom: 8px;
+	font-size: 24px;
+	font-weight: 600;
+}
+
+.subtitle {
+	max-width: 640px;
+	margin-bottom: 12px;
+	font-size: 16px;
+	line-height: 1.6;
+	color: var(--text-secondary);
+}
+
+.marketplaceLink {
+	display: inline-block;
+	font-family: var(--font-mono);
+	font-size: 14px;
+	color: var(--success);
+}
+
+.marketplaceLink:hover {
+	color: #fff;
+}
+
+.examples {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	margin-bottom: 40px;
+}
+
+.example {
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+
+.exampleHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 14px;
+	background: var(--bg-secondary);
+	border-bottom: 1px solid var(--border);
+}
+
+.exampleLabel {
+	font-size: 13px;
+	color: var(--text-secondary);
+}
+
+.code {
+	padding: 16px;
+	overflow-x: auto;
+	font-family: var(--font-mono);
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--text-primary);
+	white-space: pre;
+	background: var(--code-bg);
+}
+
+.features {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+@media (min-width: 640px) {
+	.features {
+		flex-direction: row;
+		gap: 32px;
+	}
+}
+
+.feature {
+	display: flex;
+	flex: 1;
+	gap: 12px;
+}
+
+.featureIcon {
+	display: flex;
+	flex-shrink: 0;
+	align-items: flex-start;
+	padding-top: 2px;
+}
+
+.featureTitle {
+	margin-bottom: 4px;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.featureDesc {
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--text-secondary);
+}

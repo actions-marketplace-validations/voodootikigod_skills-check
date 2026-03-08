@@ -21,6 +21,13 @@ export function Footer() {
 				</div>
 				<div className={styles.right}>
 					<a
+						href="https://github.com/marketplace/actions/skills-check-ci"
+						rel="noopener noreferrer"
+						target="_blank"
+					>
+						GitHub Action
+					</a>
+					<a
 						href="https://npmjs.com/package/skills-check"
 						rel="noopener noreferrer"
 						target="_blank"
