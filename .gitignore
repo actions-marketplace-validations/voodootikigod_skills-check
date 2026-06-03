@@ -14,10 +14,3 @@ skills-check.json
 packages/web/public/schema.json
 packages/web/tsconfig.tsbuildinfo
 
-# Dolt database files (added by bd init)
-.dolt/
-*.db
-
-# Beads local state (task tracker runtime)
-.beads/
-.worktrees/
