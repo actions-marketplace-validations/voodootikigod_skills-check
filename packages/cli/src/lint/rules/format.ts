@@ -15,6 +15,14 @@ import type { LintFinding } from "../types.js";
 const SPEC_NAME_RE = /^[\p{Ll}0-9](?:[\p{Ll}0-9]|-(?=[\p{Ll}0-9]))*$/u;
 
 /**
+ * Regular expressions for allowed-tools validation:
+ * - ALLOWED_TOOLS_SPLIT_RE: splits space-delimited list of tools
+ * - ALLOWED_TOOL_DECLARATION_RE: matches Name or Name(constraints)
+ */
+const ALLOWED_TOOLS_SPLIT_RE = /\s+/;
+const ALLOWED_TOOL_DECLARATION_RE = /^[A-Z][a-zA-Z0-9]*(?:\([^)]*\))?$/;
+
+/**
  * Check the format/validity of frontmatter field values.
  *
  * Only validates fields that are present — missing fields are handled by
@@ -126,6 +134,32 @@ export function checkFormats(file: SkillFile): LintFinding[] {
 			message: `License "${fm.license}" is not a recognized SPDX identifier. Valid SPDX expressions are recommended for publishing.`,
 			fixable: false,
 		});
+	}
+
+	// allowed-tools: if present, must be a string and have valid declarations
+	if (fm["allowed-tools"] !== undefined) {
+		if (typeof fm["allowed-tools"] === "string") {
+			const tools = fm["allowed-tools"].split(ALLOWED_TOOLS_SPLIT_RE).filter(Boolean);
+			for (const tool of tools) {
+				if (!ALLOWED_TOOL_DECLARATION_RE.test(tool)) {
+					findings.push({
+						file: file.path,
+						field: "allowed-tools",
+						level: "warning",
+						message: `Invalid tool declaration format in 'allowed-tools': "${tool}" (should match 'Name' or 'Name(constraints)', e.g., 'Bash(git:*)')`,
+						fixable: false,
+					});
+				}
+			}
+		} else {
+			findings.push({
+				file: file.path,
+				field: "allowed-tools",
+				level: "error",
+				message: `Field 'allowed-tools' must be a string, got ${typeof fm["allowed-tools"]}`,
+				fixable: false,
+			});
+		}
 	}
 
 	// metadata: values should be strings per spec
