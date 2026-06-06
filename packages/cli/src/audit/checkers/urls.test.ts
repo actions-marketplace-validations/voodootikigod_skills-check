@@ -6,6 +6,12 @@ vi.mock("node:dns/promises", () => ({
 	lookup: vi.fn().mockResolvedValue({ address: "93.184.216.34", family: 4 }),
 }));
 
+// Mock the disk cache to avoid filesystem writes during tests
+vi.mock("../cache.js", () => ({
+	getCached: vi.fn().mockResolvedValue(undefined),
+	setCached: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { lookup } from "node:dns/promises";
 import { urlChecker } from "./urls.js";
 

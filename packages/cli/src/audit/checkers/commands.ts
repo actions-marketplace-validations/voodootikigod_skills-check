@@ -121,6 +121,21 @@ export const commandsChecker: AuditChecker = {
 	async check(context: CheckContext): Promise<AuditFinding[]> {
 		const findings: AuditFinding[] = [];
 
+		const hasBash = context.allowedToolsList?.some(
+			(t) => t.name === "Bash" || t.name === "ExecuteCommand"
+		);
+
+		if (context.commands.length > 0 && !hasBash) {
+			findings.push({
+				file: context.file.path,
+				line: 1,
+				severity: "medium",
+				category: "dangerous-command",
+				message: "Skill invokes commands but does not request the Bash tool",
+				evidence: `Found ${context.commands.length} command(s) but 'allowed-tools' does not contain 'Bash'`,
+			});
+		}
+
 		for (const extracted of context.commands) {
 			for (const pattern of ALL_COMMAND_PATTERNS) {
 				if (pattern.regex.test(extracted.command)) {

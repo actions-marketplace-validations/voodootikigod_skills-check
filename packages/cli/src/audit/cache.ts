@@ -1,8 +1,21 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+let bypassCache = false;
+let disableCache = false;
+
+export function configureCache(options: { force?: boolean; noCache?: boolean }): void {
+	if (options.force !== undefined) {
+		bypassCache = options.force;
+	}
+	if (options.noCache !== undefined) {
+		disableCache = options.noCache;
+	}
+}
 
 export function getCacheDir(): string {
 	return join(homedir(), ".cache", "skills-check", "audit");
@@ -32,8 +45,8 @@ async function ensureCacheDir(): Promise<void> {
 }
 
 function cacheFilePath(ecosystem: string, name: string): string {
-	const safeName = name.replace(/\//g, "__");
-	return join(getCacheDir(), `${ecosystem}_${safeName}.json`);
+	const hash = createHash("sha256").update(`${ecosystem}:${name}`).digest("hex");
+	return join(getCacheDir(), `${hash}.json`);
 }
 
 export async function getCached(
@@ -41,22 +54,37 @@ export async function getCached(
 	name: string,
 	ttlMs = DEFAULT_TTL_MS
 ): Promise<boolean | undefined> {
+	if (disableCache || bypassCache) {
+		return undefined;
+	}
+	const path = cacheFilePath(ecosystem, name);
+	let raw: string;
 	try {
-		const path = cacheFilePath(ecosystem, name);
-		const raw = await readFile(path, "utf-8");
-		const entry: CacheEntry = JSON.parse(raw);
+		raw = await readFile(path, "utf-8");
+	} catch {
+		return undefined; // cache miss
+	}
 
+	try {
+		const entry = JSON.parse(raw);
 		if (Date.now() - entry.timestamp >= ttlMs) {
 			return undefined; // expired
 		}
-
 		return entry.value;
-	} catch {
-		return undefined; // cache miss
+	} catch (_err) {
+		try {
+			await unlink(path);
+		} catch {
+			// ignore unlink failure
+		}
+		return undefined;
 	}
 }
 
 export async function setCached(ecosystem: string, name: string, value: boolean): Promise<void> {
+	if (disableCache) {
+		return;
+	}
 	await ensureCacheDir();
 	try {
 		const path = cacheFilePath(ecosystem, name);
@@ -77,22 +105,37 @@ export async function getJsonCached(
 	name: string,
 	ttlMs = DEFAULT_TTL_MS
 ): Promise<unknown | undefined> {
+	if (disableCache || bypassCache) {
+		return undefined;
+	}
+	const path = cacheFilePath(ecosystem, name);
+	let raw: string;
 	try {
-		const path = cacheFilePath(ecosystem, name);
-		const raw = await readFile(path, "utf-8");
-		const entry: JsonCacheEntry = JSON.parse(raw);
+		raw = await readFile(path, "utf-8");
+	} catch {
+		return undefined; // cache miss
+	}
 
+	try {
+		const entry = JSON.parse(raw);
 		if (Date.now() - entry.timestamp >= ttlMs) {
 			return undefined; // expired
 		}
-
 		return entry.data;
-	} catch {
-		return undefined; // cache miss
+	} catch (_err) {
+		try {
+			await unlink(path);
+		} catch {
+			// ignore unlink failure
+		}
+		return undefined;
 	}
 }
 
 export async function setJsonCached(ecosystem: string, name: string, data: unknown): Promise<void> {
+	if (disableCache) {
+		return;
+	}
 	await ensureCacheDir();
 	try {
 		const path = cacheFilePath(ecosystem, name);

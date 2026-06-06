@@ -1,6 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { readSkillFile } from "../skill-io.js";
+import type { AllowedTool } from "../types.js";
+import { configureCache } from "./cache.js";
 import { advisoryChecker } from "./checkers/advisory.js";
 import { commandsChecker } from "./checkers/commands.js";
 import { injectionChecker } from "./checkers/injection.js";
@@ -20,6 +22,9 @@ import type {
 	CheckContext,
 	RegistryAuditResult,
 } from "./types.js";
+
+const ALLOWED_TOOLS_SPLIT_RE = /\s+/;
+const ALLOWED_TOOL_DECLARATION_RE = /^([A-Z][a-zA-Z0-9]*)(?:\(([^)]*)\))?$/;
 
 async function discoverSkillFiles(dir: string): Promise<string[]> {
 	const files: string[] = [];
@@ -58,6 +63,7 @@ async function discoverSkillFiles(dir: string): Promise<string[]> {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrator function
 export async function runAudit(paths: string[], options: AuditOptions = {}): Promise<AuditReport> {
+	configureCache({ force: options.force, noCache: options.noCache });
 	// Discover all skill files
 	const allFiles: string[] = [];
 	for (const p of paths) {
@@ -122,11 +128,36 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 		const commands = extractCommands(skillFile.raw);
 		const urls = extractUrls(skillFile.raw);
 
+		let allowedToolsList: AllowedTool[] = [];
+		let allowedToolsVal: unknown = skillFile.frontmatter["allowed-tools"];
+		if (
+			allowedToolsVal === undefined &&
+			skillFile.frontmatter.metadata &&
+			typeof skillFile.frontmatter.metadata === "object"
+		) {
+			const meta = skillFile.frontmatter.metadata as Record<string, unknown>;
+			allowedToolsVal = meta["allowed-tools"];
+		}
+		if (typeof allowedToolsVal === "string") {
+			allowedToolsList = allowedToolsVal
+				.split(ALLOWED_TOOLS_SPLIT_RE)
+				.filter(Boolean)
+				.map((t) => {
+					const match = t.match(ALLOWED_TOOL_DECLARATION_RE);
+					return {
+						name: match ? match[1] : t,
+						constraints: match ? match[2] : undefined,
+						raw: t,
+					};
+				});
+		}
+
 		const context: CheckContext = {
 			file: skillFile,
 			packages,
 			commands,
 			urls,
+			allowedToolsList,
 		};
 
 		// Run all checkers

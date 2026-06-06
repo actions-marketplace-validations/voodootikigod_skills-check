@@ -1,5 +1,8 @@
 import { lookup } from "node:dns/promises";
+import { getCached, setCached } from "../cache.js";
 import type { AuditChecker, AuditFinding, CheckContext, ExtractedUrl } from "../types.js";
+
+const URL_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const CONCURRENCY_LIMIT = 5;
 const TIMEOUT_MS = 10_000;
@@ -101,6 +104,16 @@ async function isSafeUrl(url: string): Promise<boolean> {
 	}
 }
 
+async function checkUrlLivenessCached(url: string): Promise<{ ok: boolean; status?: number }> {
+	const cached = await getCached("url-liveness", url, URL_TTL_MS);
+	if (cached !== undefined) {
+		return { ok: cached };
+	}
+	const result = await checkUrlLiveness(url);
+	await setCached("url-liveness", url, result.ok);
+	return result;
+}
+
 async function checkUrlLiveness(url: string): Promise<{ ok: boolean; status?: number }> {
 	try {
 		if (!(await isSafeUrl(url))) {
@@ -181,7 +194,7 @@ export const urlChecker: AuditChecker = {
 		}
 
 		await withConcurrencyLimit(unique, CONCURRENCY_LIMIT, async (extracted) => {
-			const result = await checkUrlLiveness(extracted.url);
+			const result = await checkUrlLivenessCached(extracted.url);
 			if (!result.ok) {
 				const statusInfo = result.status ? ` (HTTP ${result.status})` : " (connection failed)";
 				// Find all lines where this URL appears

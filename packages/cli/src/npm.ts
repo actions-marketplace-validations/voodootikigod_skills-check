@@ -1,5 +1,19 @@
 import type { NpmDistTags } from "./types.js";
 
+export class NotFoundError extends Error {
+	constructor(packageName: string) {
+		super(`Package "${packageName}" not found on npm`);
+		this.name = "NotFoundError";
+	}
+}
+
+export class NetworkError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "NetworkError";
+	}
+}
+
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const FETCH_TIMEOUT_MS = 15_000;
 
@@ -26,12 +40,19 @@ export async function fetchPackageMetadata(packageName: string): Promise<NpmPack
 			headers: { Accept: "application/json" },
 			signal: controller.signal,
 		});
+	} catch (err) {
+		throw new NetworkError(
+			`Network connection to npm failed: ${err instanceof Error ? err.message : String(err)}`
+		);
 	} finally {
 		clearTimeout(timer);
 	}
 
 	if (!response.ok) {
-		throw new Error(`npm registry returned ${response.status} for "${packageName}"`);
+		if (response.status === 404) {
+			throw new NotFoundError(packageName);
+		}
+		throw new NetworkError(`npm registry returned ${response.status} for "${packageName}"`);
 	}
 
 	const data = (await response.json()) as NpmPackageMetadata;
@@ -52,6 +73,10 @@ export async function fetchLatestVersion(packageName: string): Promise<string> {
 			headers: { Accept: "application/vnd.npm.install-v1+json" },
 			signal: controller.signal,
 		});
+	} catch (err) {
+		throw new NetworkError(
+			`Network connection to npm failed: ${err instanceof Error ? err.message : String(err)}`
+		);
 	} finally {
 		clearTimeout(timer);
 	}

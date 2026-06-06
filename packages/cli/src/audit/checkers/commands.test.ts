@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { CheckContext, ExtractedCommand } from "../types.js";
 import { commandsChecker } from "./commands.js";
 
-function makeContext(commands: ExtractedCommand[]): CheckContext {
+function makeContext(
+	commands: ExtractedCommand[],
+	allowedToolsList = [{ name: "Bash", raw: "Bash" }]
+): CheckContext {
 	return {
 		file: { path: "test/SKILL.md", frontmatter: {}, content: "", raw: "" },
 		packages: [],
 		commands,
 		urls: [],
+		allowedToolsList,
 	};
 }
 
@@ -99,6 +103,15 @@ describe("commandsChecker", () => {
 	it("preserves line numbers from extracted commands", async () => {
 		const ctx = makeContext([cmd("rm -rf /tmp/bad", 42)]);
 		const findings = await commandsChecker.check(ctx);
+		// With makeContext defaulting to including Bash, findings[0] is the RM finding
 		expect(findings[0].line).toBe(42);
+	});
+
+	it("flags missing Bash tool when commands exist", async () => {
+		const ctx = makeContext([cmd("npm install express")], []);
+		const findings = await commandsChecker.check(ctx);
+		expect(findings.length).toBe(1);
+		expect(findings[0].message).toContain("does not request the Bash tool");
+		expect(findings[0].severity).toBe("medium");
 	});
 });

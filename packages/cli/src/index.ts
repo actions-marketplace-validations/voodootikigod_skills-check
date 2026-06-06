@@ -103,6 +103,8 @@ program
 		"run in isolated environment: auto, oci, apple, docker, podman, orbstack, rancher, nerdctl, vercel, local"
 	)
 	.option("--no-isolation", "force local execution (skip isolation detection)")
+	.option("--force", "force refresh of the cache (bypass cache)")
+	.option("--no-cache", "disable cache reads and writes")
 	.action(async (dir, options) => {
 		try {
 			const code = await auditCommand(dir, options);

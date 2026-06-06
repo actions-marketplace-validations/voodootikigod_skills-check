@@ -4,6 +4,9 @@ import matter from "gray-matter";
 import { extractVersionedPackages, parseCompatibility } from "./compatibility/index.js";
 import type { ScannedSkill } from "./types.js";
 
+const ALLOWED_TOOLS_SPLIT_RE = /\s+/;
+const ALLOWED_TOOL_DECLARATION_RE = /^([A-Z][a-zA-Z0-9]*)(?:\(([^)]*)\))?$/;
+
 /**
  * Try to read a skill file from a directory, preferring SKILL.md over skill.md.
  */
@@ -96,8 +99,24 @@ export async function scanSkills(skillsDir: string): Promise<ScannedSkill[]> {
 				}
 
 				// Extract allowed-tools (experimental spec field)
-				if (typeof data["allowed-tools"] === "string") {
-					skill.allowedTools = data["allowed-tools"];
+				let allowedToolsVal: unknown = data["allowed-tools"];
+				if (allowedToolsVal === undefined && data.metadata && typeof data.metadata === "object") {
+					const meta = data.metadata as Record<string, unknown>;
+					allowedToolsVal = meta["allowed-tools"];
+				}
+				if (typeof allowedToolsVal === "string") {
+					skill.allowedTools = allowedToolsVal;
+					skill.allowedToolsList = allowedToolsVal
+						.split(ALLOWED_TOOLS_SPLIT_RE)
+						.filter(Boolean)
+						.map((t) => {
+							const match = t.match(ALLOWED_TOOL_DECLARATION_RE);
+							return {
+								name: match ? match[1] : t,
+								constraints: match ? match[2] : undefined,
+								raw: t,
+							};
+						});
 				}
 
 				// Build resolvedPackages via precedence chain

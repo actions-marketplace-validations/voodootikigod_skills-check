@@ -1,7 +1,10 @@
 import { valid as semverValid, validRange as semverValidRange } from "semver";
 import { parseCompatibility } from "../../compatibility/index.js";
 import type { SkillFile } from "../../skill-io.js";
-import { SPEC_FIELDS } from "../field-resolver.js";
+import { resolveField, SPEC_FIELDS } from "../field-resolver.js";
+
+const LOWERCASE_START_RE = /^[a-z]/;
+
 import { isValidSpdx } from "../spdx.js";
 import type { LintFinding } from "../types.js";
 
@@ -111,44 +114,58 @@ export function checkFormats(file: SkillFile): LintFinding[] {
 	}
 
 	// repository: valid URL
-	if (fm.repository && typeof fm.repository === "string") {
+	const repository = resolveField(fm, "repository");
+	if (repository && typeof repository === "string") {
 		try {
-			new URL(fm.repository);
+			new URL(repository);
 		} catch {
 			findings.push({
 				file: file.path,
 				field: "repository",
 				level: "error",
-				message: `Invalid URL for 'repository': "${fm.repository}"`,
+				message: `Invalid URL for 'repository': "${repository}"`,
 				fixable: false,
 			});
 		}
 	}
 
-	// license: SPDX check at info level (spec allows any string)
-	if (fm.license && typeof fm.license === "string" && !isValidSpdx(fm.license)) {
+	// license: SPDX check (consolidated with publish.ts)
+	const license = resolveField(fm, "license");
+	if (license && typeof license === "string" && !isValidSpdx(license)) {
 		findings.push({
 			file: file.path,
 			field: "license",
-			level: "info",
-			message: `License "${fm.license}" is not a recognized SPDX identifier. Valid SPDX expressions are recommended for publishing.`,
+			level: "warning",
+			message: `License "${license}" is not a recognized SPDX identifier. Valid SPDX is recommended for npm publishing.`,
 			fixable: false,
 		});
 	}
 
 	// allowed-tools: if present, must be a string and have valid declarations
-	if (fm["allowed-tools"] !== undefined) {
-		if (typeof fm["allowed-tools"] === "string") {
-			const tools = fm["allowed-tools"].split(ALLOWED_TOOLS_SPLIT_RE).filter(Boolean);
+	const allowedTools = resolveField(fm, "allowed-tools");
+	if (allowedTools !== undefined) {
+		if (typeof allowedTools === "string") {
+			const tools = allowedTools.split(ALLOWED_TOOLS_SPLIT_RE).filter(Boolean);
 			for (const tool of tools) {
 				if (!ALLOWED_TOOL_DECLARATION_RE.test(tool)) {
-					findings.push({
-						file: file.path,
-						field: "allowed-tools",
-						level: "warning",
-						message: `Invalid tool declaration format in 'allowed-tools': "${tool}" (should match 'Name' or 'Name(constraints)', e.g., 'Bash(git:*)')`,
-						fixable: false,
-					});
+					if (LOWERCASE_START_RE.test(tool)) {
+						const capitalized = tool[0].toUpperCase() + tool.slice(1);
+						findings.push({
+							file: file.path,
+							field: "allowed-tools",
+							level: "warning",
+							message: `Tool name in '${tool}' must be capitalized (e.g., '&quot;${capitalized}&quot;'.replace(/&quot;/g, '"'))`,
+							fixable: false,
+						});
+					} else {
+						findings.push({
+							file: file.path,
+							field: "allowed-tools",
+							level: "warning",
+							message: `Invalid tool declaration format in 'allowed-tools': "${tool}" (should match 'Name' or 'Name(constraints)', e.g., 'Bash(git:*)')`,
+							fixable: false,
+						});
+					}
 				}
 			}
 		} else {
@@ -156,7 +173,7 @@ export function checkFormats(file: SkillFile): LintFinding[] {
 				file: file.path,
 				field: "allowed-tools",
 				level: "error",
-				message: `Field 'allowed-tools' must be a string, got ${typeof fm["allowed-tools"]}`,
+				message: `Field 'allowed-tools' must be a string, got ${typeof allowedTools}`,
 				fixable: false,
 			});
 		}

@@ -1,3 +1,4 @@
+import { resolveField } from "../../lint/field-resolver.js";
 import type { AuditChecker, AuditFinding, CheckContext } from "../types.js";
 
 const REQUIRED_FIELDS = ["name", "description"] as const;
@@ -11,20 +12,22 @@ export const metadataChecker: AuditChecker = {
 		const fm = context.file.frontmatter;
 
 		for (const field of REQUIRED_FIELDS) {
-			if (!fm[field] || (typeof fm[field] === "string" && fm[field].trim() === "")) {
+			const val = resolveField(fm, field);
+			if (!val || (typeof val === "string" && val.trim() === "")) {
 				findings.push({
 					file: context.file.path,
 					line: 1,
 					severity: "medium",
 					category: "metadata-incomplete",
 					message: `Missing required frontmatter field: ${field}`,
-					evidence: `frontmatter.${field} is ${fm[field] === undefined ? "missing" : "empty"}`,
+					evidence: `frontmatter.${field} is ${val === undefined ? "missing" : "empty"}`,
 				});
 			}
 		}
 
 		for (const field of RECOMMENDED_FIELDS) {
-			if (!fm[field]) {
+			const val = resolveField(fm, field);
+			if (val === undefined) {
 				findings.push({
 					file: context.file.path,
 					line: 1,

@@ -1,4 +1,5 @@
 import type { SkillFile } from "../skill-io.js";
+import type { AllowedTool } from "../types.js";
 
 export type AuditSeverity = "critical" | "high" | "medium" | "low";
 
@@ -71,6 +72,7 @@ export interface ExtractedUrl {
 }
 
 export interface CheckContext {
+	allowedToolsList?: AllowedTool[];
 	commands: ExtractedCommand[];
 	file: SkillFile;
 	packages: ExtractedPackage[];
@@ -84,9 +86,11 @@ export interface AuditChecker {
 
 export interface AuditOptions {
 	failOn?: AuditSeverity;
+	force?: boolean;
 	format?: "terminal" | "json" | "markdown" | "sarif";
 	ignorePath?: string;
 	includeRegistryAudits?: boolean;
+	noCache?: boolean;
 	output?: string;
 	packagesOnly?: boolean;
 	skipUrls?: boolean;

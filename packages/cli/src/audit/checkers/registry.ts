@@ -13,71 +13,94 @@ function cacheKey(pkg: ExtractedPackage): string {
 	return `${pkg.ecosystem}:${pkg.name}`;
 }
 
-async function checkNpmExists(name: string): Promise<boolean> {
+export type RegistryCheckResult =
+	| { status: "exists" }
+	| { status: "missing" }
+	| { status: "error"; error: Error };
+
+async function checkNpmExists(name: string): Promise<RegistryCheckResult> {
 	try {
 		await fetchLatestVersion(name);
-		return true;
-	} catch {
-		return false;
+		return { status: "exists" };
+	} catch (error) {
+		if (error instanceof Error && error.name === "NotFoundError") {
+			return { status: "missing" };
+		}
+		return { status: "error", error: error instanceof Error ? error : new Error(String(error)) };
 	}
 }
 
-async function checkPypiExists(name: string): Promise<boolean> {
+async function checkPypiExists(name: string): Promise<RegistryCheckResult> {
 	try {
 		const response = await fetch(`${PYPI_API}/${encodeURIComponent(name)}/json`);
-		return response.ok;
-	} catch {
-		return false;
+		if (response.ok) {
+			return { status: "exists" };
+		}
+		if (response.status === 404) {
+			return { status: "missing" };
+		}
+		return { status: "error", error: new Error(`PyPI returned ${response.status}`) };
+	} catch (error) {
+		return { status: "error", error: error instanceof Error ? error : new Error(String(error)) };
 	}
 }
 
-async function checkCratesExists(name: string): Promise<boolean> {
+async function checkCratesExists(name: string): Promise<RegistryCheckResult> {
 	try {
 		const response = await fetch(`${CRATES_API}/${encodeURIComponent(name)}`, {
 			headers: {
 				"User-Agent": "skills-check-cli (https://skillscheck.ai)",
 			},
 		});
-		return response.ok;
-	} catch {
-		return false;
+		if (response.ok) {
+			return { status: "exists" };
+		}
+		if (response.status === 404) {
+			return { status: "missing" };
+		}
+		return { status: "error", error: new Error(`Crates.io returned ${response.status}`) };
+	} catch (error) {
+		return { status: "error", error: error instanceof Error ? error : new Error(String(error)) };
 	}
 }
 
-async function checkExists(pkg: ExtractedPackage): Promise<boolean> {
+async function checkExists(pkg: ExtractedPackage): Promise<RegistryCheckResult> {
 	const key = cacheKey(pkg);
 
 	// Check in-memory cache first
 	const memoryCached = memoryCache.get(key);
 	if (memoryCached !== undefined) {
-		return memoryCached;
+		return { status: memoryCached ? "exists" : "missing" };
 	}
 
 	// Check persistent disk cache
 	const diskCached = await getCached(pkg.ecosystem, pkg.name);
 	if (diskCached !== undefined) {
 		memoryCache.set(key, diskCached);
-		return diskCached;
+		return { status: diskCached ? "exists" : "missing" };
 	}
 
-	let exists = true;
+	let result: RegistryCheckResult = { status: "exists" };
 	switch (pkg.ecosystem) {
 		case "npm":
-			exists = await checkNpmExists(pkg.name);
+			result = await checkNpmExists(pkg.name);
 			break;
 		case "pypi":
-			exists = await checkPypiExists(pkg.name);
+			result = await checkPypiExists(pkg.name);
 			break;
 		case "crates":
-			exists = await checkCratesExists(pkg.name);
+			result = await checkCratesExists(pkg.name);
 			break;
 		default:
 			break;
 	}
 
-	memoryCache.set(key, exists);
-	await setCached(pkg.ecosystem, pkg.name, exists);
-	return exists;
+	if (result.status !== "error") {
+		const exists = result.status === "exists";
+		memoryCache.set(key, exists);
+		await setCached(pkg.ecosystem, pkg.name, exists);
+	}
+	return result;
 }
 
 function withConcurrencyLimit<T>(
@@ -129,8 +152,8 @@ export const registryChecker: AuditChecker = {
 		}
 
 		await withConcurrencyLimit(unique, CONCURRENCY_LIMIT, async (pkg) => {
-			const exists = await checkExists(pkg);
-			if (!exists) {
+			const result = await checkExists(pkg);
+			if (result.status === "missing") {
 				// Find all lines where this package appears
 				const allOccurrences = context.packages.filter(
 					(p) => p.ecosystem === pkg.ecosystem && p.name === pkg.name
@@ -145,6 +168,13 @@ export const registryChecker: AuditChecker = {
 						evidence: occurrence.source,
 					});
 				}
+			} else if (result.status === "error") {
+				console.warn(
+					`Warning: Failed to connect to ${pkg.ecosystem} registry to verify package "${pkg.name}". Skipping verification. Error: &quot;${result.error.message}&quot;`.replace(
+						/&quot;/g,
+						'"'
+					)
+				);
 			}
 		});
 

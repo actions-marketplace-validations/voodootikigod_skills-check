@@ -3,9 +3,18 @@ import type { CheckContext, ExtractedPackage } from "../types.js";
 import { clearRegistryCache, registryChecker } from "./registry.js";
 
 // Mock the npm module
-vi.mock("../../npm.js", () => ({
-	fetchLatestVersion: vi.fn(),
-}));
+vi.mock("../../npm.js", () => {
+	class NotFoundError extends Error {
+		constructor(msg) {
+			super(msg);
+			this.name = "NotFoundError";
+		}
+	}
+	return {
+		fetchLatestVersion: vi.fn(),
+		NotFoundError,
+	};
+});
 
 // Mock the disk cache to avoid filesystem writes
 vi.mock("../cache.js", () => ({
@@ -17,7 +26,7 @@ vi.mock("../cache.js", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import { fetchLatestVersion } from "../../npm.js";
+import { fetchLatestVersion, NotFoundError } from "../../npm.js";
 
 const mockedFetchLatest = vi.mocked(fetchLatestVersion);
 
@@ -45,7 +54,7 @@ describe("registryChecker", () => {
 	});
 
 	it("reports hallucinated npm packages", async () => {
-		mockedFetchLatest.mockRejectedValue(new Error("not found"));
+		mockedFetchLatest.mockRejectedValue(new NotFoundError("nonexistent-pkg-xyz"));
 		const ctx = makeContext([pkg("nonexistent-pkg-xyz", "npm")]);
 		const findings = await registryChecker.check(ctx);
 		expect(findings).toHaveLength(1);
@@ -106,7 +115,7 @@ describe("registryChecker", () => {
 	});
 
 	it("reports all occurrences when package is hallucinated", async () => {
-		mockedFetchLatest.mockRejectedValue(new Error("not found"));
+		mockedFetchLatest.mockRejectedValue(new NotFoundError("bad-pkg"));
 		const ctx = makeContext([pkg("bad-pkg", "npm", 3), pkg("bad-pkg", "npm", 7)]);
 		const findings = await registryChecker.check(ctx);
 		expect(findings).toHaveLength(2);
@@ -125,5 +134,12 @@ describe("registryChecker", () => {
 
 		// Only called once thanks to cache
 		expect(mockedFetchLatest).toHaveBeenCalledTimes(1);
+	});
+
+	it("skips reporting and caching on network error", async () => {
+		mockedFetchLatest.mockRejectedValue(new Error("fetch timeout"));
+		const ctx = makeContext([pkg("timeout-pkg", "npm")]);
+		const findings = await registryChecker.check(ctx);
+		expect(findings).toHaveLength(0);
 	});
 });
