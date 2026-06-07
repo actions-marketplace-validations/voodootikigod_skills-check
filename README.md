@@ -112,6 +112,8 @@ Security audit and hallucination detection for skill files. Scans for hallucinat
 | `--unique-only` | Skip injection and command checkers (use when Snyk/Socket/Gen cover these) |
 | `--include-registry-audits` | Fetch Snyk/Socket/Gen results from skills.sh |
 | `--ignore <path>` | Path to `.skills-checkignore` file |
+| `--force` | Force run and ignore cached verification results |
+| `--no-cache` | Disable loading from or saving to the persistent disk cache |
 | `--verbose` | Show progress and scan details |
 | `--quiet` | Suppress output, exit code only |
 
@@ -157,7 +159,13 @@ This line's dangerous-command findings only will be suppressed.
 
 **Caching:**
 
-Registry lookups are cached to `~/.cache/skills-check/audit/` with a 1-hour TTL, so repeated runs are fast.
+`skills-check` implements layered caching and concurrent request merging to maximize execution speed:
+1. **Registry cache**: Package existence lookups (npm, PyPI, Crates) are persisted on disk (under `~/.cache/skills-check/audit/`) using secure SHA-256 filenames with a 1-hour TTL. Transient network or registry connection errors are skipped and never cached as failures.
+2. **URL liveness cache**: Verified URLs are cached with a 12-hour TTL to prevent redundant HTTP requests across runs.
+3. **In-memory cache**: A size-limited cache evicts entries automatically when exceeding 1000 items to minimize filesystem reading overhead within a single CLI run.
+4. **Concurrent request merging**: Active in-flight check promises for identical registry packages or URLs are merged, preventing duplicate outgoing requests.
+5. **Bypass options**: Use `--force` to bypass reading from the cache, or `--no-cache` to disable the caching layer entirely.
+6. **Automatic recovery**: Corrupt JSON cache files are automatically detected and unlinked from the filesystem.
 
 ```bash
 # Audit all skills in current directory

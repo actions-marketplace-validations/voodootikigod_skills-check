@@ -197,7 +197,7 @@ Semver verification using a two-layer classifier: heuristic rules (section diffs
 
 ### Lint (`packages/cli/src/lint/`)
 
-Metadata validation with four rule sets: required fields (name, description), publish-ready fields (author, license, repository), conditional fields (`compatibility` or `product-version` when products referenced, agents when agent-specific content), and format validation (semver, semver ranges in compatibility, SPDX, URLs). Auto-fix populates missing fields from git context. SPDX validation covers 100+ identifiers with OR/AND expressions.
+Metadata validation with four rule sets: required fields (name, description), publish-ready fields (author, license, repository), conditional fields (`compatibility` or `product-version` when products referenced, agents when agent-specific content), and format validation (semver, semver ranges in compatibility, SPDX, URLs, allowed-tools). Resolves nested metadata fields via a unified resolver to align with the agentskills.io specification. Auto-fix populates missing fields from git context. SPDX validation covers 100+ identifiers with OR/AND expressions.
 
 ### Policy (`packages/cli/src/policy/`)
 
