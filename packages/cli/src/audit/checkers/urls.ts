@@ -1,6 +1,12 @@
 import { lookup } from "node:dns/promises";
 import { getCached, setCached } from "../cache.js";
-import type { AuditChecker, AuditFinding, CheckContext, ExtractedUrl } from "../types.js";
+import type {
+	AuditChecker,
+	AuditFinding,
+	CacheOptions,
+	CheckContext,
+	ExtractedUrl,
+} from "../types.js";
 
 const URL_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
@@ -106,28 +112,38 @@ async function isSafeUrl(url: string): Promise<boolean> {
 
 const activeChecks = new Map<string, Promise<{ ok: boolean; status?: number }>>();
 
-async function checkUrlLivenessCached(url: string): Promise<{ ok: boolean; status?: number }> {
-	const active = activeChecks.get(url);
+function activeCheckKey(url: string, cacheOptions?: CacheOptions): string {
+	return `${url}:${cacheOptions?.force === true}:${cacheOptions?.noCache === true}`;
+}
+
+async function checkUrlLivenessCached(
+	url: string,
+	cacheOptions?: CacheOptions
+): Promise<{ ok: boolean; status?: number }> {
+	const key = activeCheckKey(url, cacheOptions);
+	const active = activeChecks.get(key);
 	if (active) {
 		return active;
 	}
 
 	const promise = (async () => {
-		const cached = await getCached("url-liveness", url, URL_TTL_MS);
+		const cached = await getCached("url-liveness", url, URL_TTL_MS, cacheOptions);
 		if (cached !== undefined) {
 			return { ok: cached };
 		}
 		const result = await checkUrlLiveness(url);
-		await setCached("url-liveness", url, result.ok);
+		if (result.ok) {
+			await setCached("url-liveness", url, result.ok, cacheOptions);
+		}
 		return result;
 	})();
 
-	activeChecks.set(url, promise);
+	activeChecks.set(key, promise);
 
 	try {
 		return await promise;
 	} finally {
-		activeChecks.delete(url);
+		activeChecks.delete(key);
 	}
 }
 
@@ -211,7 +227,7 @@ export const urlChecker: AuditChecker = {
 		}
 
 		await withConcurrencyLimit(unique, CONCURRENCY_LIMIT, async (extracted) => {
-			const result = await checkUrlLivenessCached(extracted.url);
+			const result = await checkUrlLivenessCached(extracted.url, context.cacheOptions);
 			if (!result.ok) {
 				const statusInfo = result.status ? ` (HTTP ${result.status})` : " (connection failed)";
 				// Find all lines where this URL appears

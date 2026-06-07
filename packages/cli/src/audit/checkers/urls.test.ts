@@ -13,12 +13,15 @@ vi.mock("../cache.js", () => ({
 }));
 
 import { lookup } from "node:dns/promises";
+import { getCached, setCached } from "../cache.js";
 import { urlChecker } from "./urls.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 const mockLookup = vi.mocked(lookup);
+const mockGetCached = vi.mocked(getCached);
+const mockSetCached = vi.mocked(setCached);
 
 function makeContext(urls: ExtractedUrl[]): CheckContext {
 	return {
@@ -69,10 +72,42 @@ describe("urlChecker", () => {
 		expect(findings[0].message).toContain("connection failed");
 	});
 
+	it("does not cache failed URL checks", async () => {
+		mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+
+		const ctx = makeContext([url("https://transient.example.com")]);
+		await urlChecker.check(ctx);
+
+		expect(mockSetCached).not.toHaveBeenCalled();
+	});
+
+	it("passes cache options into URL liveness cache reads and writes", async () => {
+		mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+		const ctx = {
+			...makeContext([url("https://example.com/cache-options")]),
+			cacheOptions: { force: true },
+		};
+		await urlChecker.check(ctx);
+
+		expect(mockGetCached).toHaveBeenCalledWith(
+			"url-liveness",
+			"https://example.com/cache-options",
+			12 * 60 * 60 * 1000,
+			{ force: true }
+		);
+		expect(mockSetCached).toHaveBeenCalledWith(
+			"url-liveness",
+			"https://example.com/cache-options",
+			true,
+			{ force: true }
+		);
+	});
+
 	it("skips localhost URLs", async () => {
 		mockLookup.mockResolvedValue({ address: "127.0.0.1", family: 4 });
 		const ctx = makeContext([url("http://localhost:3000"), url("http://127.0.0.1:8080")]);
-		const _findings = await urlChecker.check(ctx);
+		await urlChecker.check(ctx);
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
@@ -84,7 +119,7 @@ describe("urlChecker", () => {
 		];
 		mockLookup.mockResolvedValue({ address: "169.254.169.254", family: 4 });
 		const ctx = makeContext(privateUrls);
-		const _findings = await urlChecker.check(ctx);
+		await urlChecker.check(ctx);
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 

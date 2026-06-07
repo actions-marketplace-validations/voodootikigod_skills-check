@@ -264,6 +264,9 @@ describe("checkFormats", () => {
 		const atFinding = findings.find((f) => f.field === "allowed-tools" && f.level === "warning");
 		expect(atFinding).toBeDefined();
 		expect(atFinding?.message).toContain("must be capitalized");
+		expect(atFinding?.message).toContain('"Bash(git:*)"');
+		expect(atFinding?.message).not.toContain("&quot;");
+		expect(atFinding?.message).not.toContain(".replace");
 	});
 
 	it("validates repository, license, and allowed-tools nested in metadata", () => {

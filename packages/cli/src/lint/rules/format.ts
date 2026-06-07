@@ -155,7 +155,7 @@ export function checkFormats(file: SkillFile): LintFinding[] {
 							file: file.path,
 							field: "allowed-tools",
 							level: "warning",
-							message: `Tool name in '${tool}' must be capitalized (e.g., '&quot;${capitalized}&quot;'.replace(/&quot;/g, '"'))`,
+							message: `Tool name in '${tool}' must be capitalized (e.g., "${capitalized}")`,
 							fixable: false,
 						});
 					} else {

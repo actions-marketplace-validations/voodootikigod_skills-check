@@ -2,7 +2,6 @@ import { stat } from "node:fs/promises";
 import { discoverSkillFiles } from "../shared/discovery.js";
 import { readSkillFile } from "../skill-io.js";
 import type { AllowedTool } from "../types.js";
-import { configureCache } from "./cache.js";
 import { advisoryChecker } from "./checkers/advisory.js";
 import { commandsChecker } from "./checkers/commands.js";
 import { injectionChecker } from "./checkers/injection.js";
@@ -47,7 +46,6 @@ async function mapConcurrent<T, R>(
 }
 
 export async function runAudit(paths: string[], options: AuditOptions = {}): Promise<AuditReport> {
-	configureCache({ force: options.force, noCache: options.noCache });
 	// Discover all skill files
 	const allFiles: string[] = [];
 	for (const p of paths) {
@@ -140,6 +138,7 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 			commands,
 			urls,
 			allowedToolsList,
+			cacheOptions: { force: options.force, noCache: options.noCache },
 		};
 
 		const fileFindings: AuditFinding[] = [];

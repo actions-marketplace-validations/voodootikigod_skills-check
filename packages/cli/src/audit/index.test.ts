@@ -30,11 +30,16 @@ vi.mock("./checkers/skills-sh-api.js", () => ({
 	fetchRegistryAudit: vi.fn().mockResolvedValue({ findings: [], registryAudit: null }),
 }));
 
+import { registryChecker } from "./checkers/registry.js";
+
+const mockedRegistryCheck = vi.mocked(registryChecker.check);
+
 describe("runAudit", () => {
 	let tempDir: string;
 
 	beforeEach(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "audit-test-"));
+		mockedRegistryCheck.mockClear();
 	});
 
 	afterEach(async () => {
@@ -72,6 +77,27 @@ This is a clean skill file.
 
 		const report = await runAudit([tempDir]);
 		expect(report.files).toBe(1);
+	});
+
+	it("passes cache options through each audit run", async () => {
+		await createSkill(
+			"cache-skill",
+			`---
+name: cache-skill
+description: A test skill
+---
+
+# Cache Skill
+
+Use npm install express.
+`
+		);
+
+		await runAudit([tempDir], { force: true });
+		await runAudit([tempDir], { noCache: true });
+
+		expect(mockedRegistryCheck.mock.calls[0]?.[0].cacheOptions).toMatchObject({ force: true });
+		expect(mockedRegistryCheck.mock.calls[1]?.[0].cacheOptions).toMatchObject({ noCache: true });
 	});
 
 	it("detects metadata issues", async () => {

@@ -100,7 +100,7 @@ export async function fetchRegistryAudit(
 	const safeName = skillName.replace(/\//g, "__");
 
 	// Check cache first
-	const cached = await getJsonCached(CACHE_ECOSYSTEM, safeName);
+	const cached = await getJsonCached(CACHE_ECOSYSTEM, safeName, undefined, context.cacheOptions);
 	if (cached !== undefined) {
 		const data = cached as SkillsShAuditResponse;
 		const result = parseResponse(data, skillName, context.file.path);
@@ -130,7 +130,7 @@ export async function fetchRegistryAudit(
 		const data: SkillsShAuditResponse = await response.json();
 
 		// Cache the response
-		await setJsonCached(CACHE_ECOSYSTEM, safeName, data);
+		await setJsonCached(CACHE_ECOSYSTEM, safeName, data, context.cacheOptions);
 
 		return parseResponse(data, skillName, context.file.path);
 	} catch (error) {

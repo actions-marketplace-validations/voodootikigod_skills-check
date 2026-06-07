@@ -151,7 +151,7 @@ Integrity and quality audit pipeline with a modular extractor/checker architectu
 audit/
   types.ts                         # AuditFinding, AuditReport, CheckContext, AuditChecker, AuditOptions
   index.ts                         # Orchestrator: discover → parse → extract → check → filter → aggregate
-  cache.ts                         # Persistent disk cache (~/.cache/skills-check/audit/) with 1-hour TTL
+  cache.ts                         # Layered audit cache (~/.cache/skills-check/audit/) with per-checker TTLs
   ignore.ts                        # .skills-checkignore parsing + inline <!-- audit-ignore --> support
   extractors/
     packages.ts                    # npm/pip/cargo package references with line numbers

@@ -2,21 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { CacheOptions } from "./types.js";
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
 const MAX_MEM_CACHE_SIZE = 1000;
-
-let bypassCache = false;
-let disableCache = false;
-
-export function configureCache(options: { force?: boolean; noCache?: boolean }): void {
-	if (options.force !== undefined) {
-		bypassCache = options.force;
-	}
-	if (options.noCache !== undefined) {
-		disableCache = options.noCache;
-	}
-}
 
 export function getCacheDir(): string {
 	return join(homedir(), ".cache", "skills-check", "audit");
@@ -73,9 +62,10 @@ function cacheFilePath(ecosystem: string, name: string): string {
 export async function getCached(
 	ecosystem: string,
 	name: string,
-	ttlMs = DEFAULT_TTL_MS
+	ttlMs = DEFAULT_TTL_MS,
+	options: CacheOptions = {}
 ): Promise<boolean | undefined> {
-	if (disableCache || bypassCache) {
+	if (options.noCache || options.force) {
 		return undefined;
 	}
 	const cacheKey = `${ecosystem}:${name}`;
@@ -113,8 +103,13 @@ export async function getCached(
 	}
 }
 
-export async function setCached(ecosystem: string, name: string, value: boolean): Promise<void> {
-	if (disableCache) {
+export async function setCached(
+	ecosystem: string,
+	name: string,
+	value: boolean,
+	options: CacheOptions = {}
+): Promise<void> {
+	if (options.noCache) {
 		return;
 	}
 	const cacheKey = `${ecosystem}:${name}`;
@@ -133,9 +128,10 @@ export async function setCached(ecosystem: string, name: string, value: boolean)
 export async function getJsonCached(
 	ecosystem: string,
 	name: string,
-	ttlMs = DEFAULT_TTL_MS
+	ttlMs = DEFAULT_TTL_MS,
+	options: CacheOptions = {}
 ): Promise<unknown | undefined> {
-	if (disableCache || bypassCache) {
+	if (options.noCache || options.force) {
 		return undefined;
 	}
 	const cacheKey = `${ecosystem}:${name}`;
@@ -173,8 +169,13 @@ export async function getJsonCached(
 	}
 }
 
-export async function setJsonCached(ecosystem: string, name: string, data: unknown): Promise<void> {
-	if (disableCache) {
+export async function setJsonCached(
+	ecosystem: string,
+	name: string,
+	data: unknown,
+	options: CacheOptions = {}
+): Promise<void> {
+	if (options.noCache) {
 		return;
 	}
 	const cacheKey = `${ecosystem}:${name}`;

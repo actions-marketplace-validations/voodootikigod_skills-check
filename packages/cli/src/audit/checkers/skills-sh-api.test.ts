@@ -90,7 +90,12 @@ describe("fetchRegistryAudit", () => {
 		expect(result.findings[0].message).toContain("snyk");
 
 		// Should cache the response
-		expect(mockedSetJsonCached).toHaveBeenCalledWith("skills-sh", "test-skill", apiResponse);
+		expect(mockedSetJsonCached).toHaveBeenCalledWith(
+			"skills-sh",
+			"test-skill",
+			apiResponse,
+			undefined
+		);
 
 		vi.unstubAllGlobals();
 	});
@@ -213,6 +218,30 @@ describe("fetchRegistryAudit", () => {
 
 		expect(result.registryAudit).not.toBeNull();
 		expect(result.registryAudit?.skillName).toBe("my-repo/skill");
+
+		vi.unstubAllGlobals();
+	});
+
+	it("passes cache options to cache reads and writes", async () => {
+		const apiResponse = { audits: [] };
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				json: () => Promise.resolve(apiResponse),
+			})
+		);
+
+		const ctx = { ...makeContext(), cacheOptions: { noCache: true } };
+		await fetchRegistryAudit(ctx);
+
+		expect(mockedGetJsonCached).toHaveBeenCalledWith("skills-sh", "test-skill", undefined, {
+			noCache: true,
+		});
+		expect(mockedSetJsonCached).toHaveBeenCalledWith("skills-sh", "test-skill", apiResponse, {
+			noCache: true,
+		});
 
 		vi.unstubAllGlobals();
 	});

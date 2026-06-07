@@ -27,8 +27,11 @@ const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 import { fetchLatestVersion, NotFoundError } from "../../npm.js";
+import { getCached, setCached } from "../cache.js";
 
 const mockedFetchLatest = vi.mocked(fetchLatestVersion);
+const mockedGetCached = vi.mocked(getCached);
+const mockedSetCached = vi.mocked(setCached);
 
 function makeContext(packages: ExtractedPackage[]): CheckContext {
 	return {
@@ -134,6 +137,36 @@ describe("registryChecker", () => {
 
 		// Only called once thanks to cache
 		expect(mockedFetchLatest).toHaveBeenCalledTimes(1);
+	});
+
+	it("bypasses checker memory cache when force is set", async () => {
+		mockedFetchLatest.mockResolvedValue("1.0.0");
+
+		await registryChecker.check(makeContext([pkg("force-pkg", "npm")]));
+		await registryChecker.check({
+			...makeContext([pkg("force-pkg", "npm")]),
+			cacheOptions: { force: true },
+		});
+
+		expect(mockedFetchLatest).toHaveBeenCalledTimes(2);
+		expect(mockedGetCached).toHaveBeenLastCalledWith("npm", "force-pkg", undefined, {
+			force: true,
+		});
+	});
+
+	it("does not populate checker memory cache when no-cache is set", async () => {
+		mockedFetchLatest.mockResolvedValue("1.0.0");
+
+		await registryChecker.check({
+			...makeContext([pkg("no-cache-pkg", "npm")]),
+			cacheOptions: { noCache: true },
+		});
+		await registryChecker.check(makeContext([pkg("no-cache-pkg", "npm")]));
+
+		expect(mockedFetchLatest).toHaveBeenCalledTimes(2);
+		expect(mockedSetCached).toHaveBeenCalledWith("npm", "no-cache-pkg", true, {
+			noCache: true,
+		});
 	});
 
 	it("skips reporting and caching on network error", async () => {

@@ -73,6 +73,7 @@ export interface ExtractedUrl {
 
 export interface CheckContext {
 	allowedToolsList?: AllowedTool[];
+	cacheOptions?: CacheOptions;
 	commands: ExtractedCommand[];
 	file: SkillFile;
 	packages: ExtractedPackage[];
@@ -95,4 +96,9 @@ export interface AuditOptions {
 	packagesOnly?: boolean;
 	skipUrls?: boolean;
 	uniqueOnly?: boolean;
+}
+
+export interface CacheOptions {
+	force?: boolean;
+	noCache?: boolean;
 }

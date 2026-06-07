@@ -161,7 +161,7 @@ This line's dangerous-command findings only will be suppressed.
 
 `skills-check` implements layered caching and concurrent request merging to maximize execution speed:
 1. **Registry cache**: Package existence lookups (npm, PyPI, Crates) are persisted on disk (under `~/.cache/skills-check/audit/`) using secure SHA-256 filenames with a 1-hour TTL. Transient network or registry connection errors are skipped and never cached as failures.
-2. **URL liveness cache**: Verified URLs are cached with a 12-hour TTL to prevent redundant HTTP requests across runs.
+2. **URL liveness cache**: Reachable URL checks are cached with a 12-hour TTL to prevent redundant HTTP requests across runs. Failed URL checks are not cached, so transient outages are retried on the next run.
 3. **In-memory cache**: A size-limited cache evicts entries automatically when exceeding 1000 items to minimize filesystem reading overhead within a single CLI run.
 4. **Concurrent request merging**: Active in-flight check promises for identical registry packages or URLs are merged, preventing duplicate outgoing requests.
 5. **Bypass options**: Use `--force` to bypass reading from the cache, or `--no-cache` to disable the caching layer entirely.

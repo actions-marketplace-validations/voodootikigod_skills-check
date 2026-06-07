@@ -82,22 +82,15 @@ describe("cache", () => {
 		await expect(fs.stat(filePath)).rejects.toThrow();
 	});
 
-	it("supports cache bypass and disable options", async () => {
-		const { configureCache } = await import("./cache.js");
-
+	it("supports per-call cache bypass and disable options", async () => {
 		await setCached("npm", "opt-pkg", true);
 
-		configureCache({ force: true });
-		expect(await getCached("npm", "opt-pkg")).toBeUndefined();
-
-		configureCache({ force: false });
+		expect(await getCached("npm", "opt-pkg", undefined, { force: true })).toBeUndefined();
 		expect(await getCached("npm", "opt-pkg")).toBe(true);
 
-		configureCache({ noCache: true });
-		expect(await getCached("npm", "opt-pkg")).toBeUndefined();
+		expect(await getCached("npm", "opt-pkg", undefined, { noCache: true })).toBeUndefined();
 
-		await setCached("npm", "opt-pkg-2", true);
-		configureCache({ noCache: false });
+		await setCached("npm", "opt-pkg-2", true, { noCache: true });
 
 		expect(await getCached("npm", "opt-pkg-2")).toBeUndefined();
 	});
