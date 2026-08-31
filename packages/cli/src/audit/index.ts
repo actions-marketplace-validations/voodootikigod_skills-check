@@ -1,6 +1,7 @@
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { stat } from "node:fs/promises";
+import { discoverSkillFiles } from "../shared/discovery.js";
 import { readSkillFile } from "../skill-io.js";
+import type { AllowedTool } from "../types.js";
 import { advisoryChecker } from "./checkers/advisory.js";
 import { commandsChecker } from "./checkers/commands.js";
 import { injectionChecker } from "./checkers/injection.js";
@@ -21,42 +22,29 @@ import type {
 	RegistryAuditResult,
 } from "./types.js";
 
-async function discoverSkillFiles(dir: string): Promise<string[]> {
-	const files: string[] = [];
+const ALLOWED_TOOLS_SPLIT_RE = /\s+/;
+const ALLOWED_TOOL_DECLARATION_RE = /^([A-Z][a-zA-Z0-9]*)(?:\(([^)]*)\))?$/;
 
-	let entries: string[];
-	try {
-		entries = await readdir(dir);
-	} catch {
-		throw new Error(`Cannot read directory: ${dir}`);
-	}
+async function mapConcurrent<T, R>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<R>
+): Promise<R[]> {
+	const results: R[] = new Array(items.length);
+	let index = 0;
 
-	for (const entry of entries) {
-		const fullPath = join(dir, entry);
-		try {
-			const info = await stat(fullPath);
-			if (info.isDirectory()) {
-				const skillPath = join(fullPath, "SKILL.md");
-				try {
-					await stat(skillPath);
-					files.push(skillPath);
-				} catch {
-					// No SKILL.md here — recurse deeper
-					const nested = await discoverSkillFiles(fullPath);
-					files.push(...nested);
-				}
-			} else if (entry === "SKILL.md") {
-				files.push(fullPath);
-			}
-		} catch {
-			// skip inaccessible entries
+	async function worker(): Promise<void> {
+		while (index < items.length) {
+			const currentIndex = index++;
+			results[currentIndex] = await fn(items[currentIndex]);
 		}
 	}
 
-	return files.sort();
+	const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+	await Promise.all(workers);
+	return results;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrator function
 export async function runAudit(paths: string[], options: AuditOptions = {}): Promise<AuditReport> {
 	// Discover all skill files
 	const allFiles: string[] = [];
@@ -79,14 +67,18 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 		findings: [],
 		summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
 		generatedAt: new Date().toISOString(),
+		suppressed: 0,
 	};
 
 	if (allFiles.length === 0) {
 		return emptyReport;
 	}
 
-	// Load ignore rules
-	const ignoreRules = await loadIgnoreRules(options.ignorePath);
+	// Load ignore rules. In strict mode, all in-band suppression is disabled, so
+	// rules are never consulted and every finding is reported.
+	const ignoreRules = options.strict ? [] : await loadIgnoreRules(options.ignorePath);
+	const isSuppressed = (finding: AuditFinding, raw: string): boolean =>
+		!options.strict && shouldIgnore(finding, ignoreRules, raw);
 
 	// Select checkers based on options
 	let checkers: AuditChecker[];
@@ -110,10 +102,8 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 		}
 	}
 
-	const allFindings: AuditFinding[] = [];
-	const registryAudits: RegistryAuditResult[] = [];
-
-	for (const filePath of allFiles) {
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrator function
+	const fileResults = await mapConcurrent(allFiles, 10, async (filePath) => {
 		// Read and parse
 		const skillFile = await readSkillFile(filePath);
 
@@ -122,20 +112,52 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 		const commands = extractCommands(skillFile.raw);
 		const urls = extractUrls(skillFile.raw);
 
+		let allowedToolsList: AllowedTool[] = [];
+		let allowedToolsVal: unknown = skillFile.frontmatter["allowed-tools"];
+		if (
+			allowedToolsVal === undefined &&
+			skillFile.frontmatter.metadata &&
+			typeof skillFile.frontmatter.metadata === "object"
+		) {
+			const meta = skillFile.frontmatter.metadata as Record<string, unknown>;
+			allowedToolsVal = meta["allowed-tools"];
+		}
+		if (typeof allowedToolsVal === "string") {
+			allowedToolsList = allowedToolsVal
+				.split(ALLOWED_TOOLS_SPLIT_RE)
+				.filter(Boolean)
+				.map((t) => {
+					const match = t.match(ALLOWED_TOOL_DECLARATION_RE);
+					return {
+						name: match ? match[1] : t,
+						constraints: match ? match[2] : undefined,
+						raw: t,
+					};
+				});
+		}
+
 		const context: CheckContext = {
 			file: skillFile,
 			packages,
 			commands,
 			urls,
+			allowedToolsList,
+			cacheOptions: { force: options.force, noCache: options.noCache },
 		};
+
+		const fileFindings: AuditFinding[] = [];
+		let fileSuppressed = 0;
+		let fileRegistryAudit: RegistryAuditResult | undefined;
 
 		// Run all checkers
 		for (const checker of checkers) {
 			const findings = await checker.check(context);
-			// Filter out ignored findings
+			// Filter out ignored findings, counting how many were suppressed
 			for (const finding of findings) {
-				if (!shouldIgnore(finding, ignoreRules, skillFile.raw)) {
-					allFindings.push(finding);
+				if (isSuppressed(finding, skillFile.raw)) {
+					fileSuppressed++;
+				} else {
+					fileFindings.push(finding);
 				}
 			}
 		}
@@ -144,13 +166,33 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 		if (options.includeRegistryAudits) {
 			const result = await fetchRegistryAudit(context);
 			if (result.registryAudit) {
-				registryAudits.push(result.registryAudit);
+				fileRegistryAudit = result.registryAudit;
 			}
 			for (const finding of result.findings) {
-				if (!shouldIgnore(finding, ignoreRules, skillFile.raw)) {
-					allFindings.push(finding);
+				if (isSuppressed(finding, skillFile.raw)) {
+					fileSuppressed++;
+				} else {
+					fileFindings.push(finding);
 				}
 			}
+		}
+
+		return {
+			findings: fileFindings,
+			suppressed: fileSuppressed,
+			registryAudit: fileRegistryAudit,
+		};
+	});
+
+	const allFindings: AuditFinding[] = [];
+	const registryAudits: RegistryAuditResult[] = [];
+	let suppressed = 0;
+
+	for (const res of fileResults) {
+		allFindings.push(...res.findings);
+		suppressed += res.suppressed;
+		if (res.registryAudit) {
+			registryAudits.push(res.registryAudit);
 		}
 	}
 
@@ -168,6 +210,7 @@ export async function runAudit(paths: string[], options: AuditOptions = {}): Pro
 		findings: allFindings,
 		summary,
 		generatedAt: new Date().toISOString(),
+		suppressed,
 		...(registryAudits.length > 0 ? { registryAudits } : {}),
 	};
 }

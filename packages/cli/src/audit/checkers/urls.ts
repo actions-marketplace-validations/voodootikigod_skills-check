@@ -1,9 +1,37 @@
 import { lookup } from "node:dns/promises";
-import type { AuditChecker, AuditFinding, CheckContext, ExtractedUrl } from "../types.js";
+import { getCached, setCached } from "../cache.js";
+import type {
+	AuditChecker,
+	AuditFinding,
+	CacheOptions,
+	CheckContext,
+	ExtractedUrl,
+} from "../types.js";
+
+const URL_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const CONCURRENCY_LIMIT = 5;
 const TIMEOUT_MS = 10_000;
+const DNS_TIMEOUT_MS = 5000;
 const PRIVATE_172_RE = /^172\.(1[6-9]|2\d|3[01])\./;
+
+function lookupWithTimeout(hostname: string, timeoutMs: number) {
+	return new Promise<Awaited<ReturnType<typeof lookup>>>((resolve, reject) => {
+		const timer = setTimeout(() => {
+			reject(new Error("DNS lookup timed out"));
+		}, timeoutMs);
+
+		lookup(hostname)
+			.then((result) => {
+				clearTimeout(timer);
+				resolve(result);
+			})
+			.catch((error) => {
+				clearTimeout(timer);
+				reject(error);
+			});
+	});
+}
 
 /**
  * Check if an IP address is private, loopback, link-local, or a cloud metadata endpoint.
@@ -27,8 +55,13 @@ function isPrivateIp(ip: string): boolean {
 	if (ip.startsWith("169.254.")) {
 		return true;
 	}
-	// IPv6 loopback and link-local
+	// IPv6 loopback, link-local, and unique local (ULA)
 	if (ip === "::1" || ip.startsWith("fe80:") || ip === "::") {
+		return true;
+	}
+	// IPv6 ULA (fc00::/7 = fc00:: through fdff::)
+	const lowerIp = ip.toLowerCase();
+	if (lowerIp.startsWith("fc") || lowerIp.startsWith("fd")) {
 		return true;
 	}
 	return false;
@@ -61,19 +94,56 @@ async function isSafeUrl(url: string): Promise<boolean> {
 			return false;
 		}
 
-		// Resolve DNS and check the IP
+		// Resolve DNS with timeout and check the IP
 		try {
-			const result = await lookup(hostname);
+			const result = await lookupWithTimeout(hostname, DNS_TIMEOUT_MS);
 			if (isPrivateIp(result.address)) {
 				return false;
 			}
 		} catch {
-			// DNS resolution failed — allow fetch to fail naturally
+			// DNS resolution failed or timed out — allow fetch to fail naturally
 		}
 
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+const activeChecks = new Map<string, Promise<{ ok: boolean; status?: number }>>();
+
+function activeCheckKey(url: string, cacheOptions?: CacheOptions): string {
+	return `${url}:${cacheOptions?.force === true}:${cacheOptions?.noCache === true}`;
+}
+
+async function checkUrlLivenessCached(
+	url: string,
+	cacheOptions?: CacheOptions
+): Promise<{ ok: boolean; status?: number }> {
+	const key = activeCheckKey(url, cacheOptions);
+	const active = activeChecks.get(key);
+	if (active) {
+		return active;
+	}
+
+	const promise = (async () => {
+		const cached = await getCached("url-liveness", url, URL_TTL_MS, cacheOptions);
+		if (cached !== undefined) {
+			return { ok: cached };
+		}
+		const result = await checkUrlLiveness(url);
+		if (result.ok) {
+			await setCached("url-liveness", url, result.ok, cacheOptions);
+		}
+		return result;
+	})();
+
+	activeChecks.set(key, promise);
+
+	try {
+		return await promise;
+	} finally {
+		activeChecks.delete(key);
 	}
 }
 
@@ -157,7 +227,7 @@ export const urlChecker: AuditChecker = {
 		}
 
 		await withConcurrencyLimit(unique, CONCURRENCY_LIMIT, async (extracted) => {
-			const result = await checkUrlLiveness(extracted.url);
+			const result = await checkUrlLivenessCached(extracted.url, context.cacheOptions);
 			if (!result.ok) {
 				const statusInfo = result.status ? ` (HTTP ${result.status})` : " (connection failed)";
 				// Find all lines where this URL appears

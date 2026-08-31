@@ -1,4 +1,6 @@
 import { writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import type { IsolationChoice } from "../isolation/types.js";
 import { runTests } from "../testing/index.js";
@@ -8,9 +10,21 @@ import { formatTestSarif } from "../testing/reporters/sarif.js";
 import { formatTerminal } from "../testing/reporters/terminal.js";
 import type { TestOptions } from "../testing/types.js";
 
+/**
+ * Resolve the local CLI package root for mounting into containers.
+ * Uses import.meta.url to find the dist directory relative to the current module.
+ */
+function getLocalBuildPath(): string {
+	const currentDir = dirname(fileURLToPath(import.meta.url));
+	// commands/ is inside src/ or dist/ — go up to the package root
+	return resolve(currentDir, "..", "..");
+}
+
 interface TestCommandOptions {
 	agent?: string;
 	agentCmd?: string;
+	allowCustomGraders?: boolean;
+	allowUnsafeLocal?: boolean;
 	ci?: boolean;
 	dry?: boolean;
 	format?: "terminal" | "json" | "markdown" | "sarif";
@@ -53,6 +67,7 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 		provider: options.provider,
 		model: options.model,
 		verbose: options.verbose,
+		allowCustomGraders: options.allowCustomGraders,
 	};
 
 	// Resolve isolation preference (--no-isolation sets it to false)
@@ -61,6 +76,23 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 		isolationChoice = "local";
 	} else if (typeof options.isolation === "string") {
 		isolationChoice = options.isolation;
+	}
+
+	const isCI =
+		options.ci ||
+		(process.env.CI !== undefined &&
+			process.env.CI !== "false" &&
+			process.env.CI !== "0" &&
+			process.env.CI !== "");
+
+	// In CI, explicit --no-isolation requires --allow-unsafe-local
+	if (isCI && isolationChoice === "local" && !options.allowUnsafeLocal) {
+		console.error(
+			chalk.red(
+				"\n  Error: --no-isolation in CI requires --allow-unsafe-local to confirm the risk.\n"
+			)
+		);
+		return 2;
 	}
 
 	// If isolation is requested and not "local", delegate to the isolation provider
@@ -89,9 +121,17 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 				)
 			);
 
-			// In CI mode, proceed with a warning (CI has its own sandboxing)
-			// In interactive mode, require --no-isolation to explicitly accept the risk
-			if (!options.ci) {
+			if (isCI) {
+				// In CI: fail closed unless explicitly overridden
+				if (!options.allowUnsafeLocal) {
+					console.error(
+						chalk.red("  CI mode requires isolation. Pass --allow-unsafe-local to override.\n")
+					);
+					return 2;
+				}
+				console.error(chalk.yellow("  --allow-unsafe-local: running without isolation in CI.\n"));
+			} else {
+				// Interactive: require --no-isolation
 				console.error(
 					chalk.yellow(
 						"  To proceed without isolation, re-run with --no-isolation to accept the risk.\n"
@@ -99,7 +139,6 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 				);
 				return 2;
 			}
-			console.error(chalk.dim("  Continuing in CI mode without isolation.\n"));
 		}
 
 		if (provider.name !== "local") {
@@ -107,57 +146,63 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 				console.error(chalk.dim(`Running tests in isolated environment (${provider.name})...`));
 			}
 
-			// Rebuild the CLI command string from options
-			const cmdParts = [dir];
+			// Build structured argv array instead of a command string
+			const argv: string[] = ["test", dir];
 			if (options.skill) {
-				cmdParts.push("--skill", options.skill);
+				argv.push("--skill", options.skill);
 			}
 			if (options.type) {
-				cmdParts.push("--type", options.type);
+				argv.push("--type", options.type);
 			}
 			if (options.agent) {
-				cmdParts.push("--agent", options.agent);
+				argv.push("--agent", options.agent);
 			}
 			if (options.agentCmd) {
-				cmdParts.push("--agent-cmd", `"${options.agentCmd}"`);
+				argv.push("--agent-cmd", options.agentCmd);
 			}
 			if (options.format) {
-				cmdParts.push("--format", options.format);
+				argv.push("--format", options.format);
 			}
 			if (options.output) {
-				cmdParts.push("--output", options.output);
+				argv.push("--output", options.output);
 			}
 			if (options.trials) {
-				cmdParts.push("--trials", options.trials);
+				argv.push("--trials", options.trials);
 			}
 			if (options.passThreshold) {
-				cmdParts.push("--pass-threshold", options.passThreshold);
+				argv.push("--pass-threshold", options.passThreshold);
 			}
 			if (options.timeout) {
-				cmdParts.push("--timeout", options.timeout);
+				argv.push("--timeout", options.timeout);
 			}
 			if (options.maxCost) {
-				cmdParts.push("--max-cost", options.maxCost);
+				argv.push("--max-cost", options.maxCost);
 			}
 			if (options.dry) {
-				cmdParts.push("--dry");
+				argv.push("--dry");
 			}
 			if (options.updateBaseline) {
-				cmdParts.push("--update-baseline");
+				argv.push("--update-baseline");
 			}
 			if (options.ci) {
-				cmdParts.push("--ci");
+				argv.push("--ci");
 			}
 			if (options.provider) {
-				cmdParts.push("--provider", options.provider);
+				argv.push("--provider", options.provider);
 			}
 			if (options.model) {
-				cmdParts.push("--model", options.model);
+				argv.push("--model", options.model);
+			}
+			if (options.allowCustomGraders) {
+				argv.push("--allow-custom-graders");
 			}
 			if (options.verbose) {
-				cmdParts.push("--verbose");
+				argv.push("--verbose");
 			}
-			cmdParts.push("--no-isolation"); // Prevent recursion inside the container
+			argv.push("--no-isolation"); // Prevent recursion inside the container
+
+			// Resolve local build path for mounting into the container
+			const localBuildPath = getLocalBuildPath();
 
 			// Forward LLM API keys for rubric grading
 			const env: Record<string, string> = {};
@@ -169,7 +214,9 @@ export async function testCommand(dir: string, options: TestCommandOptions): Pro
 			}
 
 			const result = await provider.execute({
-				command: `test ${cmdParts.join(" ")}`,
+				argv,
+				command: `test ${argv.slice(1).join(" ")}`, // backward compat
+				localBuild: localBuildPath,
 				skillsDir: dir,
 				workDir: dir,
 				timeout: options.timeout ? Number.parseInt(options.timeout, 10) * 2 : 600,

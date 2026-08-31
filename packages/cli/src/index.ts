@@ -1,18 +1,5 @@
 import { createRequire } from "node:module";
 import { Command } from "commander";
-import { auditCommand } from "./commands/audit.js";
-import { budgetCommand } from "./commands/budget.js";
-import { checkCommand } from "./commands/check.js";
-import { fingerprintCommand } from "./commands/fingerprint.js";
-import { healthCommand } from "./commands/health.js";
-import { initCommand } from "./commands/init.js";
-import { lintCommand } from "./commands/lint.js";
-import { policyCheckCommand, policyInitCommand, policyValidateCommand } from "./commands/policy.js";
-import { refreshCommand } from "./commands/refresh.js";
-import { reportCommand } from "./commands/report.js";
-import { testCommand } from "./commands/test.js";
-import { usageCommand } from "./commands/usage.js";
-import { verifyCommand } from "./commands/verify.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -37,6 +24,7 @@ program
 	.option("--ci", "exit code 1 if any stale products found")
 	.action(async (options) => {
 		try {
+			const { checkCommand } = await import("./commands/check.js");
 			const code = await checkCommand(options);
 			process.exit(code);
 		} catch (error) {
@@ -53,6 +41,7 @@ program
 	.option("-o, --output <path>", "output path for registry file")
 	.action(async (dir, options) => {
 		try {
+			const { initCommand } = await import("./commands/init.js");
 			const code = await initCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
@@ -73,6 +62,7 @@ program
 	.option("--dry-run", "show proposed changes, write nothing")
 	.action(async (skillsDir, options) => {
 		try {
+			const { refreshCommand } = await import("./commands/refresh.js");
 			const code = await refreshCommand(skillsDir, options);
 			process.exit(code);
 		} catch (error) {
@@ -96,6 +86,7 @@ program
 	)
 	.option("--include-registry-audits", "fetch Snyk/Socket/Gen results from skills.sh")
 	.option("--ignore <path>", "path to .skills-checkignore file")
+	.option("--strict", "disable all suppression (.skills-checkignore + inline audit-ignore)")
 	.option("--verbose", "show progress and scan details")
 	.option("--quiet", "suppress output, exit code only")
 	.option(
@@ -103,8 +94,11 @@ program
 		"run in isolated environment: auto, oci, apple, docker, podman, orbstack, rancher, nerdctl, vercel, local"
 	)
 	.option("--no-isolation", "force local execution (skip isolation detection)")
+	.option("--force", "force refresh of the cache (bypass cache)")
+	.option("--no-cache", "disable cache reads and writes")
 	.action(async (dir, options) => {
 		try {
+			const { auditCommand } = await import("./commands/audit.js");
 			const code = await auditCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
@@ -132,6 +126,7 @@ program
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
+			const { budgetCommand } = await import("./commands/budget.js");
 			const code = await budgetCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
@@ -146,13 +141,35 @@ program
 	.argument("[dir]", "directory to analyze", ".")
 	.option("-o, --output <path>", "write registry to file")
 	.option("--inject-watermarks", "add watermark comments to skills that lack them")
+	.option("--sign-key <path>", "Ed25519 private key (PEM) to sign the registry")
+	.option("--key-id <id>", "identifier recorded in the registry's signedBy field")
+	.option("--verify <path>", "verify the signature of an existing registry JSON file")
+	.option("--pubkey <path>", "Ed25519 public key (PEM) used with --verify")
 	.option("--json", "output as JSON")
 	.option("--ci", "strict exit codes")
 	.option("--verbose", "show progress and details")
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
+			const { fingerprintCommand } = await import("./commands/fingerprint.js");
 			const code = await fingerprintCommand(dir, options);
+			process.exit(code);
+		} catch (error) {
+			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			process.exit(2);
+		}
+	});
+
+program
+	.command("keygen")
+	.description("Generate an Ed25519 key pair for signing registries and policies")
+	.option("--out-dir <dir>", "directory to write keys into", ".")
+	.option("--name <name>", "base filename for the key pair", "skills-check")
+	.option("--quiet", "suppress output, exit code only")
+	.action(async (options) => {
+		try {
+			const { keygenCommand } = await import("./commands/keygen.js");
+			const code = await keygenCommand(options);
 			process.exit(code);
 		} catch (error) {
 			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -174,6 +191,7 @@ program
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
+			const { lintCommand } = await import("./commands/lint.js");
 			const code = await lintCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
@@ -189,6 +207,7 @@ program
 	.option("-f, --format <type>", "output format: json or markdown", "markdown")
 	.action(async (options) => {
 		try {
+			const { reportCommand } = await import("./commands/report.js");
 			const code = await reportCommand(options);
 			process.exit(code);
 		} catch (error) {
@@ -214,6 +233,7 @@ program
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (options) => {
 		try {
+			const { verifyCommand } = await import("./commands/verify.js");
 			const code = await verifyCommand(options);
 			process.exit(code);
 		} catch (error) {
@@ -236,10 +256,13 @@ policyCmd
 	.option("-f, --format <type>", "output format: terminal, json, markdown, or sarif", "terminal")
 	.option("-o, --output <path>", "write report to file")
 	.option("--fail-on <severity>", "exit code 1 threshold: blocked, violation, warning", "blocked")
+	.option("--require-signature", "require a valid detached policy signature before trusting rules")
+	.option("--pubkey <path>", "Ed25519 public key (PEM) used with --require-signature")
 	.option("--verbose", "show progress and details")
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
+			const { policyCheckCommand } = await import("./commands/policy.js");
 			const code = await policyCheckCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
@@ -254,6 +277,7 @@ policyCmd
 	.option("-o, --output <path>", "output path for policy file")
 	.action(async (options) => {
 		try {
+			const { policyInitCommand } = await import("./commands/policy.js");
 			const code = await policyInitCommand(options);
 			process.exit(code);
 		} catch (error) {
@@ -268,7 +292,26 @@ policyCmd
 	.option("--policy <path>", "path to .skill-policy.yml")
 	.action(async (options) => {
 		try {
+			const { policyValidateCommand } = await import("./commands/policy.js");
 			const code = await policyValidateCommand(options);
+			process.exit(code);
+		} catch (error) {
+			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			process.exit(2);
+		}
+	});
+
+policyCmd
+	.command("sign")
+	.description("Generate a detached signature for a .skill-policy.yml file")
+	.option("--policy <path>", "path to .skill-policy.yml")
+	.option("--sign-key <path>", "Ed25519 private key (PEM) to sign with")
+	.option("--key-id <id>", "identifier recorded in the signature")
+	.option("--quiet", "suppress output, exit code only")
+	.action(async (options) => {
+		try {
+			const { policySignCommand } = await import("./commands/policy.js");
+			const code = await policySignCommand(options);
 			process.exit(code);
 		} catch (error) {
 			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -302,8 +345,14 @@ program
 		"run in isolated environment: auto, oci, apple, docker, podman, orbstack, rancher, nerdctl, vercel, local"
 	)
 	.option("--no-isolation", "force local execution (skip isolation detection)")
+	.option("--allow-unsafe-local", "allow CI to run without isolation (unsafe)")
+	.option(
+		"--allow-custom-graders",
+		"permit custom graders to execute arbitrary code (disabled by default)"
+	)
 	.action(async (dir, options) => {
 		try {
+			const { testCommand } = await import("./commands/test.js");
 			const code = await testCommand(dir, options);
 			process.exit(code);
 		} catch (error) {
@@ -331,7 +380,40 @@ program
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (options) => {
 		try {
+			const { usageCommand } = await import("./commands/usage.js");
 			const code = await usageCommand(options);
+			process.exit(code);
+		} catch (error) {
+			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			process.exit(2);
+		}
+	});
+
+program
+	.command("fix [dir]")
+	.description("apply deterministic autofixes to skill files")
+	.option("--write", "apply fixes (default is dry-run)")
+	.option("--format <format>", "output format: terminal, json", "terminal")
+	.action(async (dir, options) => {
+		try {
+			const { fixCommand } = await import("./commands/fix.js");
+			const code = await fixCommand(dir ?? ".", options);
+			process.exit(code);
+		} catch (error) {
+			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			process.exit(2);
+		}
+	});
+
+program
+	.command("doctor")
+	.description("validate environment prerequisites and release readiness")
+	.option("--format <format>", "output format: terminal, json", "terminal")
+	.option("--ci", "exit with non-zero code on errors")
+	.action(async (options) => {
+		try {
+			const { doctorCommand } = await import("./commands/doctor.js");
+			const code = await doctorCommand(options);
 			process.exit(code);
 		} catch (error) {
 			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -354,6 +436,7 @@ program
 	.option("--quiet", "suppress output, exit code only")
 	.action(async (dir, options) => {
 		try {
+			const { healthCommand } = await import("./commands/health.js");
 			const code = await healthCommand(dir, options);
 			process.exit(code);
 		} catch (error) {

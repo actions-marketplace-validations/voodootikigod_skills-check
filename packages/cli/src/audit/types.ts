@@ -1,4 +1,5 @@
 import type { SkillFile } from "../skill-io.js";
+import type { AllowedTool } from "../types.js";
 
 export type AuditSeverity = "critical" | "high" | "medium" | "low";
 
@@ -50,6 +51,8 @@ export interface AuditReport {
 	generatedAt: string;
 	registryAudits?: RegistryAuditResult[];
 	summary: AuditSummary;
+	/** Count of findings hidden by .skills-checkignore rules or inline audit-ignore comments. */
+	suppressed: number;
 }
 
 export interface ExtractedPackage {
@@ -71,6 +74,8 @@ export interface ExtractedUrl {
 }
 
 export interface CheckContext {
+	allowedToolsList?: AllowedTool[];
+	cacheOptions?: CacheOptions;
 	commands: ExtractedCommand[];
 	file: SkillFile;
 	packages: ExtractedPackage[];
@@ -84,11 +89,20 @@ export interface AuditChecker {
 
 export interface AuditOptions {
 	failOn?: AuditSeverity;
+	force?: boolean;
 	format?: "terminal" | "json" | "markdown" | "sarif";
 	ignorePath?: string;
 	includeRegistryAudits?: boolean;
+	noCache?: boolean;
 	output?: string;
 	packagesOnly?: boolean;
 	skipUrls?: boolean;
+	/** Disable all in-band suppression (.skills-checkignore + inline audit-ignore). */
+	strict?: boolean;
 	uniqueOnly?: boolean;
+}
+
+export interface CacheOptions {
+	force?: boolean;
+	noCache?: boolean;
 }

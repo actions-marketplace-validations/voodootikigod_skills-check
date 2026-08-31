@@ -1,6 +1,12 @@
 import { fetchLatestVersion } from "../../npm.js";
 import { getCached, setCached } from "../cache.js";
-import type { AuditChecker, AuditFinding, CheckContext, ExtractedPackage } from "../types.js";
+import type {
+	AuditChecker,
+	AuditFinding,
+	CacheOptions,
+	CheckContext,
+	ExtractedPackage,
+} from "../types.js";
 
 const PYPI_API = "https://pypi.org/pypi";
 const CRATES_API = "https://crates.io/api/v1/crates";
@@ -13,71 +19,122 @@ function cacheKey(pkg: ExtractedPackage): string {
 	return `${pkg.ecosystem}:${pkg.name}`;
 }
 
-async function checkNpmExists(name: string): Promise<boolean> {
+function cacheOptionsKey(options?: CacheOptions): string {
+	return `${options?.force === true}:${options?.noCache === true}`;
+}
+
+export type RegistryCheckResult =
+	| { status: "exists" }
+	| { status: "missing" }
+	| { status: "error"; error: Error };
+
+async function checkNpmExists(name: string): Promise<RegistryCheckResult> {
 	try {
 		await fetchLatestVersion(name);
-		return true;
-	} catch {
-		return false;
+		return { status: "exists" };
+	} catch (error) {
+		if (error instanceof Error && error.name === "NotFoundError") {
+			return { status: "missing" };
+		}
+		return { status: "error", error: error instanceof Error ? error : new Error(String(error)) };
 	}
 }
 
-async function checkPypiExists(name: string): Promise<boolean> {
+async function checkPypiExists(name: string): Promise<RegistryCheckResult> {
 	try {
 		const response = await fetch(`${PYPI_API}/${encodeURIComponent(name)}/json`);
-		return response.ok;
-	} catch {
-		return false;
+		if (response.ok) {
+			return { status: "exists" };
+		}
+		if (response.status === 404) {
+			return { status: "missing" };
+		}
+		return { status: "error", error: new Error(`PyPI returned ${response.status}`) };
+	} catch (error) {
+		return { status: "error", error: error instanceof Error ? error : new Error(String(error)) };
 	}
 }
 
-async function checkCratesExists(name: string): Promise<boolean> {
+async function checkCratesExists(name: string): Promise<RegistryCheckResult> {
 	try {
 		const response = await fetch(`${CRATES_API}/${encodeURIComponent(name)}`, {
 			headers: {
 				"User-Agent": "skills-check-cli (https://skillscheck.ai)",
 			},
 		});
-		return response.ok;
-	} catch {
-		return false;
+		if (response.ok) {
+			return { status: "exists" };
+		}
+		if (response.status === 404) {
+			return { status: "missing" };
+		}
+		return { status: "error", error: new Error(`Crates.io returned ${response.status}`) };
+	} catch (error) {
+		return { status: "error", error: error instanceof Error ? error : new Error(String(error)) };
 	}
 }
 
-async function checkExists(pkg: ExtractedPackage): Promise<boolean> {
+const activeRegistryChecks = new Map<string, Promise<RegistryCheckResult>>();
+
+async function checkExists(
+	pkg: ExtractedPackage,
+	cacheOptions?: CacheOptions
+): Promise<RegistryCheckResult> {
 	const key = cacheKey(pkg);
+	const canReadMemoryCache = cacheOptions?.force !== true && cacheOptions?.noCache !== true;
 
 	// Check in-memory cache first
-	const memoryCached = memoryCache.get(key);
+	const memoryCached = canReadMemoryCache ? memoryCache.get(key) : undefined;
 	if (memoryCached !== undefined) {
-		return memoryCached;
+		return { status: memoryCached ? "exists" : "missing" };
 	}
 
-	// Check persistent disk cache
-	const diskCached = await getCached(pkg.ecosystem, pkg.name);
-	if (diskCached !== undefined) {
-		memoryCache.set(key, diskCached);
-		return diskCached;
+	const activeKey = `${key}:${cacheOptionsKey(cacheOptions)}`;
+	const active = activeRegistryChecks.get(activeKey);
+	if (active) {
+		return active;
 	}
 
-	let exists = true;
-	switch (pkg.ecosystem) {
-		case "npm":
-			exists = await checkNpmExists(pkg.name);
-			break;
-		case "pypi":
-			exists = await checkPypiExists(pkg.name);
-			break;
-		case "crates":
-			exists = await checkCratesExists(pkg.name);
-			break;
-		default:
-			break;
-	}
+	const promise = (async (): Promise<RegistryCheckResult> => {
+		// Check persistent disk cache
+		const diskCached = await getCached(pkg.ecosystem, pkg.name, undefined, cacheOptions);
+		if (diskCached !== undefined) {
+			memoryCache.set(key, diskCached);
+			return { status: diskCached ? "exists" : "missing" };
+		}
 
-	memoryCache.set(key, exists);
-	await setCached(pkg.ecosystem, pkg.name, exists);
-	return exists;
+		let result: RegistryCheckResult = { status: "exists" };
+		switch (pkg.ecosystem) {
+			case "npm":
+				result = await checkNpmExists(pkg.name);
+				break;
+			case "pypi":
+				result = await checkPypiExists(pkg.name);
+				break;
+			case "crates":
+				result = await checkCratesExists(pkg.name);
+				break;
+			default:
+				break;
+		}
+
+		if (result.status !== "error") {
+			const exists = result.status === "exists";
+			if (cacheOptions?.noCache !== true) {
+				memoryCache.set(key, exists);
+			}
+			await setCached(pkg.ecosystem, pkg.name, exists, cacheOptions);
+		}
+		return result;
+	})();
+
+	activeRegistryChecks.set(activeKey, promise);
+
+	try {
+		return await promise;
+	} finally {
+		activeRegistryChecks.delete(activeKey);
+	}
 }
 
 function withConcurrencyLimit<T>(
@@ -129,8 +186,8 @@ export const registryChecker: AuditChecker = {
 		}
 
 		await withConcurrencyLimit(unique, CONCURRENCY_LIMIT, async (pkg) => {
-			const exists = await checkExists(pkg);
-			if (!exists) {
+			const result = await checkExists(pkg, context.cacheOptions);
+			if (result.status === "missing") {
 				// Find all lines where this package appears
 				const allOccurrences = context.packages.filter(
 					(p) => p.ecosystem === pkg.ecosystem && p.name === pkg.name
@@ -145,6 +202,10 @@ export const registryChecker: AuditChecker = {
 						evidence: occurrence.source,
 					});
 				}
+			} else if (result.status === "error") {
+				console.warn(
+					`Warning: Failed to connect to ${pkg.ecosystem} registry to verify package "${pkg.name}". Skipping verification. Error: "${result.error.message}"`
+				);
 			}
 		});
 

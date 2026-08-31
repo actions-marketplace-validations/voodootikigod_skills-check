@@ -130,10 +130,12 @@ outputs:
 
 runs:
   using: "composite"
+  # NOTE: skills-check is pinned to a specific version (currently 1.3.0) to prevent
+  # supply chain attacks. Update the pinned version in all npx commands when releasing.
   steps:
     # ── Setup ──────────────────────────────────────────────────────────
     - name: Setup Node.js
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
       with:
         node-version: ${{ inputs.node-version }}
 
@@ -155,8 +157,13 @@ runs:
       run: |
         if [ -n "$INPUT_COMMANDS" ]; then
           # Parse comma-separated list into individual flags
+          ALLOWED="check audit lint budget policy verify test fingerprint usage"
           for CMD in $(echo "$INPUT_COMMANDS" | tr ',' ' '); do
             CMD=$(echo "$CMD" | xargs)  # trim whitespace
+            if ! echo "$ALLOWED" | grep -qw "$CMD"; then
+              echo "::error::Invalid command: $CMD. Allowed: $ALLOWED"
+              exit 2
+            fi
             echo "run_${CMD}=true" >> "$GITHUB_OUTPUT"
           done
         else
@@ -181,7 +188,7 @@ runs:
         INPUT_REGISTRY: ${{ inputs.registry }}
       run: |
         set +e
-        OUTPUT=$(npx --yes skills-check check --registry "$INPUT_REGISTRY" --json --ci 2>&1)
+        OUTPUT=$(npx --yes skills-check@1.3.0 check --registry "$INPUT_REGISTRY" --json --ci 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -208,7 +215,7 @@ runs:
       env:
         INPUT_REGISTRY: ${{ inputs.registry }}
       run: |
-        REPORT=$(npx --yes skills-check report --registry "$INPUT_REGISTRY" --format markdown 2>/dev/null)
+        REPORT=$(npx --yes skills-check@1.3.0 report --registry "$INPUT_REGISTRY" --format markdown 2>/dev/null)
 
         # Write multiline output
         {
@@ -246,7 +253,7 @@ runs:
         INPUT_AUDIT_FAIL_ON: ${{ inputs.audit-fail-on }}
       run: |
         set +e
-        AUDIT_OUTPUT=$(npx --yes skills-check audit "$INPUT_SKILLS_DIR" \
+        AUDIT_OUTPUT=$(npx --yes skills-check@1.3.0 audit "$INPUT_SKILLS_DIR" \
           --format json \
           --fail-on "$INPUT_AUDIT_FAIL_ON" 2>&1)
         EXIT_CODE=$?
@@ -277,7 +284,7 @@ runs:
         INPUT_LINT_FAIL_ON: ${{ inputs.lint-fail-on }}
       run: |
         set +e
-        LINT_OUTPUT=$(npx --yes skills-check lint "$INPUT_SKILLS_DIR" \
+        LINT_OUTPUT=$(npx --yes skills-check@1.3.0 lint "$INPUT_SKILLS_DIR" \
           --ci \
           --format json \
           --fail-on "$INPUT_LINT_FAIL_ON" 2>&1)
@@ -314,7 +321,7 @@ runs:
         fi
 
         set +e
-        BUDGET_OUTPUT=$(npx --yes skills-check budget "${BUDGET_ARGS[@]}" 2>&1)
+        BUDGET_OUTPUT=$(npx --yes skills-check@1.3.0 budget "${BUDGET_ARGS[@]}" 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -350,7 +357,7 @@ runs:
         POLICY_ARGS+=(--fail-on "$INPUT_POLICY_FAIL_ON")
 
         set +e
-        POLICY_OUTPUT=$(npx --yes skills-check policy check "${POLICY_ARGS[@]}" 2>&1)
+        POLICY_OUTPUT=$(npx --yes skills-check@1.3.0 policy check "${POLICY_ARGS[@]}" 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -376,7 +383,7 @@ runs:
       shell: bash
       run: |
         set +e
-        VERIFY_OUTPUT=$(npx --yes skills-check verify --all --format json --skip-llm 2>&1)
+        VERIFY_OUTPUT=$(npx --yes skills-check@1.3.0 verify --all --format json --skip-llm 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -404,7 +411,7 @@ runs:
         INPUT_SKILLS_DIR: ${{ inputs.skills-dir }}
       run: |
         set +e
-        TEST_OUTPUT=$(npx --yes skills-check test "$INPUT_SKILLS_DIR" --ci --format json 2>&1)
+        TEST_OUTPUT=$(npx --yes skills-check@1.3.0 test "$INPUT_SKILLS_DIR" --ci --format json 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -432,7 +439,7 @@ runs:
         INPUT_SKILLS_DIR: ${{ inputs.skills-dir }}
       run: |
         set +e
-        FP_OUTPUT=$(npx --yes skills-check fingerprint "$INPUT_SKILLS_DIR" --json 2>&1)
+        FP_OUTPUT=$(npx --yes skills-check@1.3.0 fingerprint "$INPUT_SKILLS_DIR" --json 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -469,7 +476,7 @@ runs:
         fi
 
         set +e
-        USAGE_OUTPUT=$(npx --yes skills-check usage "${USAGE_ARGS[@]}" 2>&1)
+        USAGE_OUTPUT=$(npx --yes skills-check@1.3.0 usage "${USAGE_ARGS[@]}" 2>&1)
         EXIT_CODE=$?
         set -e
 

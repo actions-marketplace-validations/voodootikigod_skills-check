@@ -6,13 +6,22 @@ vi.mock("node:dns/promises", () => ({
 	lookup: vi.fn().mockResolvedValue({ address: "93.184.216.34", family: 4 }),
 }));
 
+// Mock the disk cache to avoid filesystem writes during tests
+vi.mock("../cache.js", () => ({
+	getCached: vi.fn().mockResolvedValue(undefined),
+	setCached: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { lookup } from "node:dns/promises";
+import { getCached, setCached } from "../cache.js";
 import { urlChecker } from "./urls.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 const mockLookup = vi.mocked(lookup);
+const mockGetCached = vi.mocked(getCached);
+const mockSetCached = vi.mocked(setCached);
 
 function makeContext(urls: ExtractedUrl[]): CheckContext {
 	return {
@@ -63,10 +72,42 @@ describe("urlChecker", () => {
 		expect(findings[0].message).toContain("connection failed");
 	});
 
+	it("does not cache failed URL checks", async () => {
+		mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+
+		const ctx = makeContext([url("https://transient.example.com")]);
+		await urlChecker.check(ctx);
+
+		expect(mockSetCached).not.toHaveBeenCalled();
+	});
+
+	it("passes cache options into URL liveness cache reads and writes", async () => {
+		mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+		const ctx = {
+			...makeContext([url("https://example.com/cache-options")]),
+			cacheOptions: { force: true },
+		};
+		await urlChecker.check(ctx);
+
+		expect(mockGetCached).toHaveBeenCalledWith(
+			"url-liveness",
+			"https://example.com/cache-options",
+			12 * 60 * 60 * 1000,
+			{ force: true }
+		);
+		expect(mockSetCached).toHaveBeenCalledWith(
+			"url-liveness",
+			"https://example.com/cache-options",
+			true,
+			{ force: true }
+		);
+	});
+
 	it("skips localhost URLs", async () => {
 		mockLookup.mockResolvedValue({ address: "127.0.0.1", family: 4 });
 		const ctx = makeContext([url("http://localhost:3000"), url("http://127.0.0.1:8080")]);
-		const _findings = await urlChecker.check(ctx);
+		await urlChecker.check(ctx);
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
@@ -78,7 +119,7 @@ describe("urlChecker", () => {
 		];
 		mockLookup.mockResolvedValue({ address: "169.254.169.254", family: 4 });
 		const ctx = makeContext(privateUrls);
-		const _findings = await urlChecker.check(ctx);
+		await urlChecker.check(ctx);
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
@@ -104,5 +145,71 @@ describe("urlChecker", () => {
 		const ctx = makeContext([url("https://example.com/docs", 1, "documentation")]);
 		const findings = await urlChecker.check(ctx);
 		expect(findings[0].evidence).toContain("documentation");
+	});
+
+	describe("SSRF / private-network URL safety", () => {
+		const ssrfUrls = [
+			{ u: "http://localhost:8080/secret", ip: "127.0.0.1", label: "localhost" },
+			{ u: "http://127.0.0.1/admin", ip: "127.0.0.1", label: "IPv4 loopback" },
+			{
+				u: "http://169.254.169.254/latest/meta-data/",
+				ip: "169.254.169.254",
+				label: "AWS metadata",
+			},
+			{ u: "http://[::1]/admin", ip: "::1", label: "IPv6 loopback" },
+			{ u: "http://0.0.0.0/", ip: "0.0.0.0", label: "unspecified address" },
+			{
+				u: "http://metadata.google.internal/",
+				ip: "169.254.169.254",
+				label: "GCP metadata",
+			},
+			{ u: "http://192.168.1.1/", ip: "192.168.1.1", label: "private 192.168.x.x" },
+			{ u: "http://10.0.0.1/internal", ip: "10.0.0.1", label: "private 10.x.x.x" },
+			{
+				u: "http://172.16.0.1/internal",
+				ip: "172.16.0.1",
+				label: "private 172.16.x.x",
+			},
+		];
+
+		for (const { u, ip, label } of ssrfUrls) {
+			it(`never fetches ${label} URL: ${u}`, async () => {
+				mockFetch.mockClear();
+				mockLookup.mockResolvedValue({ address: ip, family: ip.includes(":") ? 6 : 4 });
+
+				const ctx = makeContext([url(u)]);
+				await urlChecker.check(ctx);
+
+				expect(mockFetch).not.toHaveBeenCalled();
+			});
+		}
+
+		it("blocks DNS rebinding to private IP", async () => {
+			mockFetch.mockClear();
+			// Public hostname that resolves to a private IP
+			mockLookup.mockResolvedValue({ address: "10.0.0.1", family: 4 });
+
+			const ctx = makeContext([url("http://evil.com/steal")]);
+			await urlChecker.check(ctx);
+
+			expect(mockFetch).not.toHaveBeenCalled();
+		});
+
+		it("does not crash on malformed URLs", async () => {
+			mockFetch.mockClear();
+
+			const ctx = makeContext([
+				url("not-a-url"),
+				url("://missing-scheme"),
+				url("http://"),
+				url("ftp://files.example.com/data"),
+			]);
+
+			// Should not throw
+			const findings = await urlChecker.check(ctx);
+			// ftp:// is not http, so it's filtered out; malformed may or may not produce findings
+			// The key assertion is no crash
+			expect(Array.isArray(findings)).toBe(true);
+		});
 	});
 });

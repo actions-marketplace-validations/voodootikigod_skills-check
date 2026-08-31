@@ -27,8 +27,15 @@ export interface CompatibilityEntry {
 /**
  * Scanned skill from SKILL.md frontmatter
  */
+export interface AllowedTool {
+	constraints?: string;
+	name: string;
+	raw: string;
+}
+
 export interface ScannedSkill {
 	allowedTools?: string;
+	allowedToolsList?: AllowedTool[];
 	compatibility?: string;
 	compatibilityEntries?: CompatibilityEntry[];
 	name: string;

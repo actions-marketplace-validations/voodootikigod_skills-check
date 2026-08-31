@@ -112,6 +112,9 @@ Security audit and hallucination detection for skill files. Scans for hallucinat
 | `--unique-only` | Skip injection and command checkers (use when Snyk/Socket/Gen cover these) |
 | `--include-registry-audits` | Fetch Snyk/Socket/Gen results from skills.sh |
 | `--ignore <path>` | Path to `.skills-checkignore` file |
+| `--strict` | Disable all suppression (`.skills-checkignore` + inline `audit-ignore`); report every finding |
+| `--force` | Force run and ignore cached verification results |
+| `--no-cache` | Disable loading from or saving to the persistent disk cache |
 | `--verbose` | Show progress and scan details |
 | `--quiet` | Suppress output, exit code only |
 
@@ -155,9 +158,17 @@ This line's findings will be suppressed.
 This line's dangerous-command findings only will be suppressed.
 ```
 
+Suppression is never silent: every report (terminal, JSON, Markdown) includes a `suppressed` count of findings hidden by ignore rules or inline comments. In CI, run with `--strict` to disable all suppression and report every finding — this prevents a skill author from self-silencing the auditor via an inline `audit-ignore` comment or a checked-in `.skills-checkignore`.
+
 **Caching:**
 
-Registry lookups are cached to `~/.cache/skills-check/audit/` with a 1-hour TTL, so repeated runs are fast.
+`skills-check` implements layered caching and concurrent request merging to maximize execution speed:
+1. **Registry cache**: Package existence lookups (npm, PyPI, Crates) are persisted on disk (under `~/.cache/skills-check/audit/`) using secure SHA-256 filenames with a 1-hour TTL. Transient network or registry connection errors are skipped and never cached as failures.
+2. **URL liveness cache**: Reachable URL checks are cached with a 12-hour TTL to prevent redundant HTTP requests across runs. Failed URL checks are not cached, so transient outages are retried on the next run.
+3. **In-memory cache**: A size-limited cache evicts entries automatically when exceeding 1000 items to minimize filesystem reading overhead within a single CLI run.
+4. **Concurrent request merging**: Active in-flight check promises for identical registry packages or URLs are merged, preventing duplicate outgoing requests.
+5. **Bypass options**: Use `--force` to bypass reading from the cache, or `--no-cache` to disable the caching layer entirely.
+6. **Automatic recovery**: Corrupt JSON cache files are automatically detected and unlinked from the filesystem.
 
 ```bash
 # Audit all skills in current directory
@@ -298,6 +309,24 @@ Check all installed skills against organizational policy.
 | `-f, --format <type>` | Output format: `terminal` or `json` (default: `terminal`) |
 | `-o, --output <path>` | Write report to file |
 | `--fail-on <severity>` | Exit code 1 threshold: `blocked`, `violation`, `warning` (default: `blocked`) |
+| `--require-signature` | Require a valid detached policy signature before trusting rules (fail-closed) |
+| `--pubkey <path>` | Ed25519 public key (PEM) used with `--require-signature` |
+
+#### `skills-check policy sign`
+
+Generate a detached signature (`.skill-policy.yml.sig`) so the policy can be verified at enforcement time. Prevents a tampered or unauthenticated policy from being trusted in CI.
+
+| Flag | Description |
+|------|-------------|
+| `--policy <path>` | Path to `.skill-policy.yml` |
+| `--sign-key <path>` | Ed25519 private key (PEM) to sign with |
+| `--key-id <id>` | Identifier recorded in the signature |
+
+```bash
+skills-check keygen --name policy-signing
+skills-check policy sign --sign-key policy-signing.key --key-id policy-signing
+skills-check policy check --require-signature --pubkey policy-signing.pub
+```
 
 #### `skills-check policy init`
 
@@ -353,6 +382,10 @@ Run eval test suites declared in skill `tests/` directories. Supports multiple a
 | `--ci` | Strict exit codes (exit 1 on regressions) |
 | `--provider <name>` | LLM provider for rubric grading: `anthropic`, `openai`, `google` |
 | `--model <id>` | Model for rubric grading |
+| `--isolation <provider>` | Run in an isolated environment (`auto`, `docker`, `podman`, `vercel`, ...) |
+| `--no-isolation` | Force local execution (skip isolation detection) |
+| `--allow-unsafe-local` | Permit running without isolation in CI (unsafe) |
+| `--allow-custom-graders` | Permit `custom` graders to execute arbitrary code (disabled by default) |
 | `--verbose` | Show per-grader results |
 
 ```bash
@@ -383,12 +416,24 @@ Generate a fingerprint registry of installed skills with content hashes and wate
 |------|-------------|
 | `-o, --output <path>` | Write registry to file |
 | `--inject-watermarks` | Add watermark comments to skills that lack them |
+| `--sign-key <path>` | Ed25519 private key (PEM) to sign the registry |
+| `--key-id <id>` | Identifier recorded in the registry's `signedBy` field |
+| `--verify <path>` | Verify the signature of an existing registry JSON file |
+| `--pubkey <path>` | Ed25519 public key (PEM) used with `--verify` |
 | `--json` | Output as JSON |
 | `--ci` | Strict exit codes |
 | `--verbose` | Show progress and details |
 | `--quiet` | Suppress output, exit code only |
 
-**Exit codes:** `0` = success, `2` = configuration error.
+**Exit codes:** `0` = success (or valid signature), `1` = invalid/unsigned registry with `--verify`, `2` = configuration error.
+
+**Signing:** Generate a key pair with `skills-check keygen`, then sign the registry so consumers can detect tampering in transit or at rest. The signature (Ed25519 over a canonical serialization) is embedded in the registry's `signature`/`signedBy` fields.
+
+```bash
+skills-check keygen --name ci-signing
+skills-check fingerprint --sign-key ci-signing.key --key-id ci-signing --json -o registry.json
+skills-check fingerprint --verify registry.json --pubkey ci-signing.pub
+```
 
 **Output format (JSON):**
 
@@ -426,6 +471,21 @@ skills-check fingerprint ./skills --inject-watermarks
 
 # Quiet mode for CI (exit code only)
 skills-check fingerprint --quiet
+```
+
+### `skills-check keygen`
+
+Generate an Ed25519 key pair for signing fingerprint registries and policy files. Writes a PKCS#8 private key (mode `0600`) and an SPKI public key. Keep the private key secret; distribute the public key to verifiers.
+
+| Flag | Description |
+|------|-------------|
+| `--out-dir <dir>` | Directory to write keys into (default: `.`) |
+| `--name <name>` | Base filename for the key pair (default: `skills-check`) |
+| `--quiet` | Suppress output, exit code only |
+
+```bash
+# Produces ci-signing.key (private) and ci-signing.pub (public)
+skills-check keygen --name ci-signing --out-dir ./keys
 ```
 
 ### `skills-check usage`
@@ -472,6 +532,67 @@ skills-check usage --store file://telemetry.jsonl --markdown -o usage-report.md
 
 # CI mode with policy enforcement
 skills-check usage --store file://telemetry.jsonl --check-policy --ci --fail-on violation
+```
+
+### `skills-check doctor`
+
+Validate environment prerequisites and release readiness.
+
+| Flag | Description |
+|------|-------------|
+| `--format <format>` | Output format: `terminal` or `json` (default: `terminal`) |
+| `--ci` | Exit with non-zero code on errors |
+
+```bash
+# Validate environment
+skills-check doctor
+
+# CI mode with JSON output
+skills-check doctor --format json --ci
+```
+
+### `skills-check fix [dir]`
+
+Apply deterministic autofixes to skill files.
+
+| Flag | Description |
+|------|-------------|
+| `--write` | Apply fixes (default is dry-run) |
+| `--format <format>` | Output format: `terminal` or `json` (default: `terminal`) |
+
+```bash
+# Dry-run fixes in current directory
+skills-check fix
+
+# Apply fixes to a specific directory
+skills-check fix ./skills --write
+```
+
+### `skills-check health [dir]`
+
+Run audit + lint + budget + policy as a single CI gate.
+
+| Flag | Description |
+|------|-------------|
+| `-f, --format <type>` | Output format: `terminal` or `json` (default: `terminal`) |
+| `-o, --output <path>` | Write report to file |
+| `--max-tokens <n>` | Budget threshold for token count |
+| `--skip-audit` | Skip audit check |
+| `--skip-lint` | Skip lint check |
+| `--skip-budget` | Skip budget check |
+| `--skip-policy` | Skip policy check |
+| `--verbose` | Show progress and details |
+| `--quiet` | Suppress output, exit code only |
+
+```bash
+# Run all health checks
+skills-check health
+
+# Run health checks with token budget limit
+skills-check health ./skills --max-tokens 50000
+
+# Quiet mode for CI
+skills-check health --quiet
 ```
 
 ### `skills-check refresh [skills-dir]`
@@ -763,6 +884,25 @@ For simpler setups, run individual commands directly:
 - name: Analyze skill usage
   run: npx skills-check usage --store file://telemetry.jsonl --check-policy --ci
 ```
+
+## Trust Boundary Guide
+
+Not all commands carry the same risk profile. Understanding which commands are local-only versus which make network requests or execute external code helps you configure CI permissions and sandboxing appropriately.
+
+**Local-only and deterministic:** `init`, `lint`, `budget`, `verify`, `fingerprint` — operate entirely on local files with no network access or code execution. `policy` is local-only by default, but makes network requests when `audit.require_clean` is configured in `.skill-policy.yml` (it delegates to the audit pipeline).
+
+**Network requests:**
+
+- `check` and `report` — query the npm registry for latest package versions
+- `audit` — queries npm, PyPI, and crates.io package registries; performs HEAD requests to verify URL liveness
+- `refresh` — calls LLM provider APIs (Anthropic, OpenAI, Google) to generate skill updates
+- `usage` — reads from telemetry stores which may be remote (SQLite or JSONL)
+
+**LLM-assisted:** `refresh`, `verify` (with heuristic fallback when no key is set), and `test` (the `llm-rubric` grader). All LLM-assisted features degrade gracefully without API keys.
+
+**External code execution:** The `test` command executes shell commands through agent harnesses (Claude Code CLI or a generic shell). Test cases can run arbitrary commands defined in `cases.yaml`. Use `--isolation` when running tests against untrusted skills to sandbox execution in a container. The `custom` grader — which imports and runs a skill-author-supplied JS module — is **disabled by default** (fail-closed) and runs only when you pass `--allow-custom-graders`. Even when allowed, it executes in a worker thread with a dropped environment (no API keys or secrets reach the module), a bounded heap, and an enforced timeout; for full filesystem/network isolation against untrusted skills, combine it with `--isolation`.
+
+**Integrity (signing):** Fingerprint registries and policy files can be Ed25519-signed (`skills-check keygen` to make keys; `fingerprint --sign-key` / `policy sign` to sign; `fingerprint --verify` / `policy check --require-signature` to verify). Signing detects tampering in transit or at rest and lets CI refuse to act on an unauthenticated policy. Verification is fail-closed: an unsigned or mismatched artifact fails rather than silently passing.
 
 ## Complementary Tools
 

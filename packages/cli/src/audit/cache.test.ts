@@ -64,4 +64,34 @@ describe("cache", () => {
 		expect(await getCached("npm", "pkg")).toBe(true);
 		expect(await getCached("pypi", "pkg")).toBe(false);
 	});
+
+	it("recovers from corruption by deleting the file", async () => {
+		const { getCacheDir } = await import("./cache.js");
+		const { createHash } = await import("node:crypto");
+		const fs = await import("node:fs/promises");
+
+		await setCached("npm", "corrupt-pkg", true);
+
+		const hash = createHash("sha256").update("npm:corrupt-pkg").digest("hex");
+		const filePath = join(getCacheDir(), `${hash}.json`);
+		await fs.writeFile(filePath, "{invalid-json}", "utf-8");
+
+		const result = await getCached("npm", "corrupt-pkg");
+		expect(result).toBeUndefined();
+
+		await expect(fs.stat(filePath)).rejects.toThrow();
+	});
+
+	it("supports per-call cache bypass and disable options", async () => {
+		await setCached("npm", "opt-pkg", true);
+
+		expect(await getCached("npm", "opt-pkg", undefined, { force: true })).toBeUndefined();
+		expect(await getCached("npm", "opt-pkg")).toBe(true);
+
+		expect(await getCached("npm", "opt-pkg", undefined, { noCache: true })).toBeUndefined();
+
+		await setCached("npm", "opt-pkg-2", true, { noCache: true });
+
+		expect(await getCached("npm", "opt-pkg-2")).toBeUndefined();
+	});
 });

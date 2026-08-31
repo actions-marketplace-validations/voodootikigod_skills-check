@@ -177,12 +177,12 @@ describe("checkFormats", () => {
 
 	// --- license (downgraded to info per spec) ---
 
-	it("reports non-SPDX license as info (spec allows any string)", () => {
+	it("reports non-SPDX license as warning (spec allows any string)", () => {
 		const file = makeFile({ license: "INVALID-LICENSE" });
 		const findings = checkFormats(file);
 		const licenseFinding = findings.find((f) => f.field === "license");
 		expect(licenseFinding).toBeDefined();
-		expect(licenseFinding?.level).toBe("info");
+		expect(licenseFinding?.level).toBe("warning");
 	});
 
 	it("accepts valid SPDX license expression", () => {
@@ -240,6 +240,47 @@ describe("checkFormats", () => {
 			f.message.includes("not defined in the Agent Skills spec")
 		);
 		expect(specFieldWarnings).toHaveLength(0);
+	});
+
+	// --- allowed-tools ---
+
+	it("accepts valid allowed-tools declarations", () => {
+		const file = makeFile({ "allowed-tools": "Bash(git:*) Bash(jq:*) Read" });
+		const findings = checkFormats(file);
+		expect(findings.filter((f) => f.field === "allowed-tools")).toHaveLength(0);
+	});
+
+	it("reports error if allowed-tools is not a string", () => {
+		const file = makeFile({ "allowed-tools": 123 });
+		const findings = checkFormats(file);
+		const atFinding = findings.find((f) => f.field === "allowed-tools" && f.level === "error");
+		expect(atFinding).toBeDefined();
+		expect(atFinding?.message).toContain("must be a string");
+	});
+
+	it("warns about invalid tool declaration format in allowed-tools", () => {
+		const file = makeFile({ "allowed-tools": "bash(git:*) Read" }); // lowercase b in bash is invalid (must start with capital letter)
+		const findings = checkFormats(file);
+		const atFinding = findings.find((f) => f.field === "allowed-tools" && f.level === "warning");
+		expect(atFinding).toBeDefined();
+		expect(atFinding?.message).toContain("must be capitalized");
+		expect(atFinding?.message).toContain('"Bash(git:*)"');
+		expect(atFinding?.message).not.toContain("&quot;");
+		expect(atFinding?.message).not.toContain(".replace");
+	});
+
+	it("validates repository, license, and allowed-tools nested in metadata", () => {
+		const file = makeFile({
+			metadata: {
+				repository: "not-a-url",
+				license: "INVALID-LICENSE",
+				"allowed-tools": "bash(git:*)",
+			},
+		});
+		const findings = checkFormats(file);
+		expect(findings.some((f) => f.field === "repository" && f.level === "error")).toBe(true);
+		expect(findings.some((f) => f.field === "license" && f.level === "warning")).toBe(true);
+		expect(findings.some((f) => f.field === "allowed-tools" && f.level === "warning")).toBe(true);
 	});
 
 	it("skips validation for missing fields", () => {

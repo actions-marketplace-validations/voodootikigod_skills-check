@@ -1,7 +1,11 @@
+import { basename, dirname } from "node:path";
 import { valid as semverValid, validRange as semverValidRange } from "semver";
 import { parseCompatibility } from "../../compatibility/index.js";
 import type { SkillFile } from "../../skill-io.js";
-import { SPEC_FIELDS } from "../field-resolver.js";
+import { resolveField, SPEC_FIELDS } from "../field-resolver.js";
+
+const LOWERCASE_START_RE = /^[a-z]/;
+
 import { isValidSpdx } from "../spdx.js";
 import type { LintFinding } from "../types.js";
 
@@ -13,6 +17,14 @@ import type { LintFinding } from "../types.js";
  * - Must start with a letter or digit
  */
 const SPEC_NAME_RE = /^[\p{Ll}0-9](?:[\p{Ll}0-9]|-(?=[\p{Ll}0-9]))*$/u;
+
+/**
+ * Regular expressions for allowed-tools validation:
+ * - ALLOWED_TOOLS_SPLIT_RE: splits space-delimited list of tools
+ * - ALLOWED_TOOL_DECLARATION_RE: matches Name or Name(constraints)
+ */
+const ALLOWED_TOOLS_SPLIT_RE = /\s+/;
+const ALLOWED_TOOL_DECLARATION_RE = /^[A-Z][a-zA-Z0-9]*(?:\([^)]*\))?$/;
 
 /**
  * Check the format/validity of frontmatter field values.
@@ -49,7 +61,7 @@ export function checkFormats(file: SkillFile): LintFinding[] {
 		}
 
 		// Directory name match check
-		const dirName = file.path.split("/").filter(Boolean).at(-2);
+		const dirName = basename(dirname(file.path));
 		if (dirName && dirName !== normalized) {
 			findings.push({
 				file: file.path,
@@ -103,29 +115,69 @@ export function checkFormats(file: SkillFile): LintFinding[] {
 	}
 
 	// repository: valid URL
-	if (fm.repository && typeof fm.repository === "string") {
+	const repository = resolveField(fm, "repository");
+	if (repository && typeof repository === "string") {
 		try {
-			new URL(fm.repository);
+			new URL(repository);
 		} catch {
 			findings.push({
 				file: file.path,
 				field: "repository",
 				level: "error",
-				message: `Invalid URL for 'repository': "${fm.repository}"`,
+				message: `Invalid URL for 'repository': "${repository}"`,
 				fixable: false,
 			});
 		}
 	}
 
-	// license: SPDX check at info level (spec allows any string)
-	if (fm.license && typeof fm.license === "string" && !isValidSpdx(fm.license)) {
+	// license: SPDX check (consolidated with publish.ts)
+	const license = resolveField(fm, "license");
+	if (license && typeof license === "string" && !isValidSpdx(license)) {
 		findings.push({
 			file: file.path,
 			field: "license",
-			level: "info",
-			message: `License "${fm.license}" is not a recognized SPDX identifier. Valid SPDX expressions are recommended for publishing.`,
+			level: "warning",
+			message: `License "${license}" is not a recognized SPDX identifier. Valid SPDX is recommended for npm publishing.`,
 			fixable: false,
 		});
+	}
+
+	// allowed-tools: if present, must be a string and have valid declarations
+	const allowedTools = resolveField(fm, "allowed-tools");
+	if (allowedTools !== undefined) {
+		if (typeof allowedTools === "string") {
+			const tools = allowedTools.split(ALLOWED_TOOLS_SPLIT_RE).filter(Boolean);
+			for (const tool of tools) {
+				if (!ALLOWED_TOOL_DECLARATION_RE.test(tool)) {
+					if (LOWERCASE_START_RE.test(tool)) {
+						const capitalized = tool[0].toUpperCase() + tool.slice(1);
+						findings.push({
+							file: file.path,
+							field: "allowed-tools",
+							level: "warning",
+							message: `Tool name in '${tool}' must be capitalized (e.g., "${capitalized}")`,
+							fixable: false,
+						});
+					} else {
+						findings.push({
+							file: file.path,
+							field: "allowed-tools",
+							level: "warning",
+							message: `Invalid tool declaration format in 'allowed-tools': "${tool}" (should match 'Name' or 'Name(constraints)', e.g., 'Bash(git:*)')`,
+							fixable: false,
+						});
+					}
+				}
+			}
+		} else {
+			findings.push({
+				file: file.path,
+				field: "allowed-tools",
+				level: "error",
+				message: `Field 'allowed-tools' must be a string, got ${typeof allowedTools}`,
+				fixable: false,
+			});
+		}
 	}
 
 	// metadata: values should be strings per spec

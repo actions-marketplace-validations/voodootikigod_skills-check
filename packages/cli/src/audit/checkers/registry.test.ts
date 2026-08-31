@@ -3,9 +3,18 @@ import type { CheckContext, ExtractedPackage } from "../types.js";
 import { clearRegistryCache, registryChecker } from "./registry.js";
 
 // Mock the npm module
-vi.mock("../../npm.js", () => ({
-	fetchLatestVersion: vi.fn(),
-}));
+vi.mock("../../npm.js", () => {
+	class NotFoundError extends Error {
+		constructor(msg: string) {
+			super(msg);
+			this.name = "NotFoundError";
+		}
+	}
+	return {
+		fetchLatestVersion: vi.fn(),
+		NotFoundError,
+	};
+});
 
 // Mock the disk cache to avoid filesystem writes
 vi.mock("../cache.js", () => ({
@@ -17,9 +26,12 @@ vi.mock("../cache.js", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import { fetchLatestVersion } from "../../npm.js";
+import { fetchLatestVersion, NotFoundError } from "../../npm.js";
+import { getCached, setCached } from "../cache.js";
 
 const mockedFetchLatest = vi.mocked(fetchLatestVersion);
+const mockedGetCached = vi.mocked(getCached);
+const mockedSetCached = vi.mocked(setCached);
 
 function makeContext(packages: ExtractedPackage[]): CheckContext {
 	return {
@@ -45,7 +57,7 @@ describe("registryChecker", () => {
 	});
 
 	it("reports hallucinated npm packages", async () => {
-		mockedFetchLatest.mockRejectedValue(new Error("not found"));
+		mockedFetchLatest.mockRejectedValue(new NotFoundError("nonexistent-pkg-xyz"));
 		const ctx = makeContext([pkg("nonexistent-pkg-xyz", "npm")]);
 		const findings = await registryChecker.check(ctx);
 		expect(findings).toHaveLength(1);
@@ -106,7 +118,7 @@ describe("registryChecker", () => {
 	});
 
 	it("reports all occurrences when package is hallucinated", async () => {
-		mockedFetchLatest.mockRejectedValue(new Error("not found"));
+		mockedFetchLatest.mockRejectedValue(new NotFoundError("bad-pkg"));
 		const ctx = makeContext([pkg("bad-pkg", "npm", 3), pkg("bad-pkg", "npm", 7)]);
 		const findings = await registryChecker.check(ctx);
 		expect(findings).toHaveLength(2);
@@ -125,5 +137,42 @@ describe("registryChecker", () => {
 
 		// Only called once thanks to cache
 		expect(mockedFetchLatest).toHaveBeenCalledTimes(1);
+	});
+
+	it("bypasses checker memory cache when force is set", async () => {
+		mockedFetchLatest.mockResolvedValue("1.0.0");
+
+		await registryChecker.check(makeContext([pkg("force-pkg", "npm")]));
+		await registryChecker.check({
+			...makeContext([pkg("force-pkg", "npm")]),
+			cacheOptions: { force: true },
+		});
+
+		expect(mockedFetchLatest).toHaveBeenCalledTimes(2);
+		expect(mockedGetCached).toHaveBeenLastCalledWith("npm", "force-pkg", undefined, {
+			force: true,
+		});
+	});
+
+	it("does not populate checker memory cache when no-cache is set", async () => {
+		mockedFetchLatest.mockResolvedValue("1.0.0");
+
+		await registryChecker.check({
+			...makeContext([pkg("no-cache-pkg", "npm")]),
+			cacheOptions: { noCache: true },
+		});
+		await registryChecker.check(makeContext([pkg("no-cache-pkg", "npm")]));
+
+		expect(mockedFetchLatest).toHaveBeenCalledTimes(2);
+		expect(mockedSetCached).toHaveBeenCalledWith("npm", "no-cache-pkg", true, {
+			noCache: true,
+		});
+	});
+
+	it("skips reporting and caching on network error", async () => {
+		mockedFetchLatest.mockRejectedValue(new Error("fetch timeout"));
+		const ctx = makeContext([pkg("timeout-pkg", "npm")]);
+		const findings = await registryChecker.check(ctx);
+		expect(findings).toHaveLength(0);
 	});
 });

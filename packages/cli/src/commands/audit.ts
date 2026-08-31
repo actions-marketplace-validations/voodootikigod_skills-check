@@ -9,7 +9,9 @@ import type { IsolationChoice } from "../isolation/types.js";
 import { auditThreshold, formatAndOutput } from "../shared/index.js";
 
 interface AuditCommandOptions {
+	cache?: boolean;
 	failOn?: string;
+	force?: boolean;
 	format?: "terminal" | "json" | "markdown" | "sarif";
 	ignore?: string;
 	includeRegistryAudits?: boolean;
@@ -18,6 +20,7 @@ interface AuditCommandOptions {
 	packagesOnly?: boolean;
 	quiet?: boolean;
 	skipUrls?: boolean;
+	strict?: boolean;
 	uniqueOnly?: boolean;
 	verbose?: boolean;
 }
@@ -95,11 +98,20 @@ export async function auditCommand(dir: string, options: AuditCommandOptions): P
 			if (options.ignore) {
 				cmdParts.push("--ignore", options.ignore);
 			}
+			if (options.strict) {
+				cmdParts.push("--strict");
+			}
 			if (options.verbose) {
 				cmdParts.push("--verbose");
 			}
 			if (options.quiet) {
 				cmdParts.push("--quiet");
+			}
+			if (options.force) {
+				cmdParts.push("--force");
+			}
+			if (options.cache === false) {
+				cmdParts.push("--no-cache");
 			}
 			cmdParts.push("--no-isolation"); // Prevent recursion inside the container
 
@@ -150,6 +162,9 @@ export async function auditCommand(dir: string, options: AuditCommandOptions): P
 		ignorePath: options.ignore,
 		uniqueOnly: options.uniqueOnly,
 		includeRegistryAudits: options.includeRegistryAudits,
+		force: options.force,
+		noCache: options.cache === false,
+		strict: options.strict,
 	};
 
 	const report = await runAudit([dir], auditOptions);
